@@ -48,6 +48,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 <script>
 const cards={};
 function fmt(n,d=2){return n!=null?Number(n).toFixed(d):'--'}
+function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
 function badge(type){
   const m={large_cap:['大型','type-large'],mid_cap:['中型','type-mid'],
             small_cap:['小型','type-small'],speculative:['投機','type-spec']};
@@ -72,9 +73,9 @@ function render(data){
 <h2>${s.stock_id} <span>${badge(s.stock_type)}</span></h2>
 <div class="price ${cls}">${fmt(s.close_price)} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
-<div class="row"><span>量 ${(s.deal_volume||0).toLocaleString()}</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
-<div class="row"><span>內盤 ${(s.total_in_volume||0).toLocaleString()}</span><span class="muted">外盤 ${(s.total_out_volume||0).toLocaleString()}</span></div>
-<div class="row"><span>估日量 ${(s.estimated_day_volume||0).toLocaleString()}</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
+<div class="row"><span>量 ${vol(s.deal_volume)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
+<div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
+<div class="row"><span>估日量 ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
