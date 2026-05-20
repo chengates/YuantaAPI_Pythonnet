@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Name -Recurse -Depth 1)",
+      "PowerShell(if \\(-not \\(Test-Path .git\\)\\) { git init; git status } else { git status })",
+      "PowerShell(git add .gitignore README.md claude_agent_setup.py claude_agent_runtime.py)",
+      "PowerShell(git add '2317.csv' '2330.csv' '2344.csv' 'CHANGELOG.md' 'IO_Doc/' 'MODIFICATION_SUMMARY.md' 'YuantaAPI_IronPython.py' 'YuantaAPI_Pythonnet.py' 'cStocks.py' 'launch.json' 'yesterday/' 'B110000005_TWCA.pfx' '�J������CLAUD TIPS.txt')",
+      "PowerShell(git add '���j�Ҩ�API�ާ@����.pdf' '���j�Ҩ�OneAPI_Python�ϥλ���.pdf')"
+    ]
+  }
+}

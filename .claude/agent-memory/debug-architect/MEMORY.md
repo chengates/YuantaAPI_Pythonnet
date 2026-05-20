@@ -1,0 +1,1 @@
+- [User Role and Expertise](user_role.md) — R&D hardware-software leader background from PAL to ASIC design, software strengths in C/C++/C#/Python/JS, no Go experience
