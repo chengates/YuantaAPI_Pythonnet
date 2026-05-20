@@ -57,6 +57,16 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .bar{height:4px;border-radius:2px;margin-top:4px;background:#21262d}
 .bar-fill{height:100%;border-radius:2px;transition:width .3s}
 .last-update{font-size:10px;color:#484f58;margin-top:6px}
+.summary-bar{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px}
+.summary-item{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 14px}
+.summary-item .num{font-size:18px;font-weight:bold}
+.pcr-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-top:12px}
+.pcr-panel h3{font-size:14px;margin-bottom:8px}
+.pcr-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.pcr-row input{width:80px;padding:4px 6px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:12px}
+.pcr-row label{font-size:11px;color:#8b949e}
+.pcr-result{font-size:12px;margin-top:8px;line-height:1.6}
+.toggle-btn{background:none;border:none;color:#58a6ff;cursor:pointer;font-size:13px;padding:4px 0}
 </style>
 </head>
 <body>
@@ -64,7 +74,22 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 <h1>Yuanta OneAPI — 即時監控</h1>
 <select class="wl-select" id="wlSelect" onchange="switchWatchlist(this.value)"></select>
 </div>
+<div class="summary-bar" id="summary"></div>
 <div class="grid" id="grid"></div>
+<button class="toggle-btn" onclick="document.getElementById('pcrPanel').style.display=document.getElementById('pcrPanel').style.display==='none'?'block':'none'">Put/Call 合理價計算 ▾</button>
+<div class="pcr-panel" id="pcrPanel" style="display:none">
+<h3>選擇權合理價評估</h3>
+<div class="pcr-row">
+<label>S(現貨)<input id="pcrS" value="23000"></label>
+<label>K(履約)<input id="pcrK" value="23000"></label>
+<label>天數<input id="pcrD" value="30"></label>
+<label>Call市價<input id="pcrC" value="300"></label>
+<label>Put市價<input id="pcrP" value="280"></label>
+<label>波動率<input id="pcrV" value="0.25"></label>
+<button onclick="calcPCR()" style="padding:4px 12px;background:#238636;border:none;color:#fff;border-radius:4px;cursor:pointer">計算</button>
+</div>
+<div class="pcr-result" id="pcrResult"></div>
+</div>
 <div class="last-update" id="status">等待資料...</div>
 <script>
 async function loadWatchlists(){
@@ -114,8 +139,31 @@ function render(data){
   }
   document.getElementById('status').textContent='更新 '+new Date().toLocaleTimeString();
 }
+function summary(data){
+  let totalVol=0,totalIn=0,totalOut=0,up=0,down=0;const entries=Object.entries(data);
+  for(const[,s] of entries){
+    totalVol+=(s.deal_volume||0);totalIn+=(s.total_in_volume||0);totalOut+=(s.total_out_volume||0);
+    if(s.close_price>=s.open_price) up++; else down++;
+  }
+  const inPct=totalIn+totalOut>0?Math.round(totalIn/(totalIn+totalOut)*100):50;
+  document.getElementById('summary').innerHTML=`
+<div class="summary-item">📊 監控 ${entries.length} 檔 <span class="num">${up}↑ ${down}↓</span></div>
+<div class="summary-item">總量 <span class="num">${Math.round(totalVol/1000).toLocaleString()} 張</span></div>
+<div class="summary-item">內盤佔比 <span class="num" style="color:${inPct>55?'#3fb950':inPct<45?'#f85149':'#c9d1d9'}">${inPct}%</span></div>`;
+}
+async function calcPCR(){
+  const p=id=>document.getElementById(id).value;
+  const r=await fetch('/api/options?'+new URLSearchParams({S:p('pcrS'),K:p('pcrK'),days:p('pcrD'),call:p('pcrC'),put:p('pcrP'),vol:p('pcrV')}));
+  const d=await r.json();
+  document.getElementById('pcrResult').innerHTML=`
+理論 Call: ${d.fair_call} (市場 ${d.call_premium_pct>0?'+':''}${d.call_premium_pct}%)<br>
+理論 Put: ${d.fair_put} (市場 ${d.put_premium_pct>0?'+':''}${d.put_premium_pct}%)<br>
+Call IV: ${(d.call_iv*100).toFixed(1)}% | Put IV: ${(d.put_iv*100).toFixed(1)}%<br>
+Parity偏差: ${d.parity_diff>0?'Call偏貴':'Put偏貴'} ${Math.abs(d.parity_diff).toFixed(1)}<br>
+PCR 訊號: ${d.pcr.signal} (vol:${d.pcr.vol_ratio||'--'})`;
+}
 const es=new EventSource('/stream');
-es.onmessage=function(e){render(JSON.parse(e.data))};
+es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d)};
 </script>
 </body>
 </html>"""
