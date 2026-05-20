@@ -88,6 +88,8 @@ class StockQuoteState:
         self.last_saved_timestamp = None
         self.yesterday_volume = None
         self.yesterday_close = None
+        self.stock_type = 'unknown'
+        self.participation_score = None
         try:
             self._load_yesterday_data()
         except Exception as e:
@@ -196,6 +198,88 @@ class StockQuoteState:
             self.price_diff = self.close_price - self.open_price
 
         self._update_technical_indicators()
+        self._classify_participation()
+
+    @staticmethod
+    def detect_stock_type(stock_id: str, price=None, avg_volume=None) -> str:
+        """依股號及價量特性分類: large_cap / mid_cap / small_cap / speculative。"""
+        if price and avg_volume:
+            daily_value = price * avg_volume
+            if daily_value > 500_000_000:
+                return 'large_cap'
+            if daily_value > 50_000_000:
+                return 'mid_cap'
+            if daily_value > 5_000_000:
+                return 'small_cap'
+            return 'speculative'
+        if stock_id in ('2330', '2317', '2454', '2412', '2881', '2882', '1301', '1303', '2002'):
+            return 'large_cap'
+        if len(stock_id) == 4 and stock_id[0] in ('2', '3', '4', '5', '6', '8', '9'):
+            return 'mid_cap'
+        return 'small_cap'
+
+    def _classify_participation(self):
+        """
+        依內外盤壓力與成交量特性，評分主力/散戶參度。
+        score > 0 → 主力買方主導
+        score < 0 → 主力賣方主導
+        score ~ 0 → 散戶盤整
+        """
+        score = 0
+        buy_total = sum(self.buy_volumes) if self.buy_volumes else 0
+        sell_total = sum(self.sell_volumes) if self.sell_volumes else 0
+        bid_ask_total = buy_total + sell_total
+
+        # 1. 五檔買賣壓力 (深度不平衡)
+        if bid_ask_total > 0:
+            score += (buy_total - sell_total) / bid_ask_total * 40
+
+        # 2. 內外盤成交偏向
+        in_out_total = self.total_in_volume + self.total_out_volume
+        if in_out_total > 0:
+            score += (self.total_in_volume - self.total_out_volume) / in_out_total * 35
+
+        # 3. 大單偏向 (每筆均量 vs 五日均量)
+        if self.trade_count > 0 and self.total_volume > 0:
+            avg_trade_size = self.total_volume / self.trade_count
+            if self.yesterday_volume and self.yesterday_volume > 0:
+                normal_size = self.yesterday_volume / 1000
+                if avg_trade_size > normal_size * 1.5:
+                    score += 15 if score > 0 else -15
+
+        # 4. 價格位置 (收盤 vs 均價)
+        if self.close_price and self.last_deal_price:
+            vwap = (self.total_in_volume * self.close_price + self.total_out_volume * self.close_price) / max(in_out_total, 1) if in_out_total > 0 else None
+            if vwap and self.close_price > vwap * 1.002:
+                score += 10
+            elif vwap and self.close_price < vwap * 0.998:
+                score -= 10
+
+        self.participation_score = round(score, 1)
+
+    def participation_label(self) -> str:
+        """回傳可讀的主力/散戶參與標籤。"""
+        if self.participation_score is None:
+            return 'N/A'
+        s = self.participation_score
+        if s > 30:
+            return '主力強力買進'
+        if s > 10:
+            return '主力溫和買進'
+        if s > -10:
+            return '散戶盤整'
+        if s > -30:
+            return '主力溫和賣出'
+        return '主力強力賣出'
+
+    def get_stock_type(self) -> str:
+        """回傳或自動偵測股票分類。"""
+        if self.stock_type == 'unknown':
+            self.stock_type = self.detect_stock_type(
+                self.stock_id,
+                price=self.close_price,
+                avg_volume=self.yesterday_volume)
+        return self.stock_type
 
     def _load_yesterday_data(self):
         """從 yesterday/{stock_id}.csv 載入昨日收盤量作為 prev_average_volume。"""
@@ -336,6 +420,9 @@ class StockQuoteState:
             'ma10': self.ma10,
             'price_momentum': self.price_momentum,
             'byIndexFlag': self.byIndexFlag,
+            'stock_type': self.stock_type,
+            'participation_score': self.participation_score,
+            'participation_label': self.participation_label(),
             'extra_data': self.extra_data,
         }
 
@@ -3057,7 +3144,8 @@ async def _save_to_csv_async(stock_id, record):
                 'close_price', 'price_diff', 'trade_count', 'estimated_day_volume', 'pct_of_yesterday_avg',
                 'total_in_volume', 'total_out_volume', 'buy_total_volume', 'sell_total_volume', 'buy_sell_imbalance',
                 'buy_sell_pressure', 'buy_prices', 'buy_volumes', 'sell_prices', 'sell_volumes',
-                'ma5', 'ma10', 'price_momentum', 'byIndexFlag', 'extra_data'
+                'ma5', 'ma10', 'price_momentum', 'byIndexFlag',
+                'stock_type', 'participation_score', 'participation_label', 'extra_data'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             
@@ -3091,6 +3179,9 @@ async def _save_to_csv_async(stock_id, record):
                 'ma10': record.get('ma10'),
                 'price_momentum': record.get('price_momentum'),
                 'byIndexFlag': record.get('byIndexFlag'),
+                'stock_type': record.get('stock_type'),
+                'participation_score': record.get('participation_score'),
+                'participation_label': record.get('participation_label'),
                 'extra_data': str(record.get('extra_data', {}))
             }
             writer.writerow(row)
@@ -3141,6 +3232,7 @@ def _display_quote_info(state):
         print(f"最新成交: {close_price if close_price is not None else 'N/A'} 量: {deal_volume if deal_volume is not None else 'N/A'} 成交額: {deal_amount if deal_amount is not None else 'N/A'}")
         print(f"開: {open_price if open_price is not None else 'N/A'}  高: {high_price if high_price is not None else 'N/A'}  低: {low_price if low_price is not None else 'N/A'}  收: {close_price if close_price is not None else 'N/A'}  漲跌: {price_diff if price_diff is not None else 'N/A'}")
         print(f"成交筆數: {trade_count} 內盤: {total_in_volume} 外盤: {total_out_volume} 估日量: {estimated_day_volume if estimated_day_volume is not None else 'N/A'} 昨日均量%: {pct_of_yesterday_avg if pct_of_yesterday_avg is not None else 'N/A'}")
+        print(f"分類: {record.get('stock_type', 'N/A')} | 主力/散戶: {record.get('participation_label', 'N/A')} (score={record.get('participation_score', 'N/A')})")
 
         if extra_data:
             print(f"额外訂閱欄位: {extra_data}")
