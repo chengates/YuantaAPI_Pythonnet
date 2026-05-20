@@ -32,6 +32,22 @@
 - **README.md**: GitHub 專案首頁文件
 - **.gitignore**: Git 版控排除規則
 
+### Added (Evening Session — Analysis & Dashboard)
+- **主力/散戶分類系統**: `StockQuoteState._classify_participation()`
+  - 五檔買賣壓力 + 內外盤成交偏向 + 大單偵測 + 價格 vs 均價位置
+  - 評分制: 主力強力買進 (>30) / 主力溫和買進 (>10) / 散戶盤整 (-10~10) / 主力溫和賣出 (>-30) / 主力強力賣出
+- **股票分類**: `StockQuoteState.detect_stock_type()` 依成交值自動分類 large_cap/mid_cap/small_cap/speculative
+- **Web Dashboard**: `web_dashboard.py` — Flask + SSE 即時多股監控畫面
+  - Dark theme card layout 顯示 OHLCV / MA / 買賣佔比 / 主力標籤
+  - 讀取 CSV 檔案無需依賴 .NET Runtime，可獨立執行
+- **CSV 欄位擴充**: `stock_type`, `participation_score`, `participation_label`
+
+### Changed (cStocks Performance)
+- **向量化 K 線繪製**: 逐根 Rectangle → 單次 ax.vlines + ax.bar, artist 數量 180+ → ~6
+- **向量化成量色彩**: for loop + print() → np.where 單次計算
+- **支撐/壓力快取**: `_sr_cache` / `_sr_dirty`, 避免每次 update_view 重算
+- **移除** orphaned `getMaxMinDf` 方法
+
 ---
 
 ## [Unreleased]
