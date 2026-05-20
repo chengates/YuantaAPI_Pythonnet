@@ -103,6 +103,9 @@ class cStock(BasicUnit):
         self.info_box = None
         self.oi_vol = None
         self.oi_kdj = None
+        # ── 支撐/壓力線快取 ──
+        self._sr_cache = ([], [])
+        self._sr_dirty = True
         # ── 繪圖工具狀態 ──────────────────────────────────────────
         self.draw_tool    = 'cursor'   # 目前選擇的工具
         self.draw_color   = '#FFFF00'  # 目前選擇的顏色（預設黃色）
@@ -131,9 +134,9 @@ class cStock(BasicUnit):
         if self.unit != "D" and self.unit in ["1T","5T","15T","30T","60T","W-FRI","ME"]:
             df = df.resample(self.unit).apply(agg).dropna()
         self.df_all = df.reset_index()
-        #如果self.unit被改變需要聚合焦集後從新計算不同層級的macd/kd/bolling/ma5,ma20均量及均線
         self.calculate_indicators()
         self.start_idx = max(0, len(self.df_all) - self.n_days)
+        self._sr_dirty = True
 
     def calculate_indicators(self):
         df = self.df_all
@@ -158,18 +161,15 @@ class cStock(BasicUnit):
         df["vol_ma5"] = (df["成交股數"]/1000).rolling(5).mean()
 
     def _calc_support_resistance(self):
-        """
-        結合「成交量加權」+「價格密集區」自動算出可視區的支撐/壓力線
-        回傳 (supports, resistances) 各為 List[float] 最多 2 條
-        演算法：
-          1. 以可視區 df 計算價格範圍，切成 N 個 bin
-          2. 每個 bin 累積「成交量加權」票數
-          3. 找出量最大的 bin 中心價格 → 候選水平線
-          4. 低於目前收盤價 → 支撐；高於 → 壓力
-          5. 相鄰重複的線合併（距離 < 0.5%），各取前 2
-        """
+        """成交量加權支撐/壓力線，結果透過 _sr_cache / _sr_dirty 快取。"""
+        if not self._sr_dirty:
+            return self._sr_cache
+
         df = self.df
         if df is None or len(df) < 5:
+            self._sr_cache = ([], [])
+            self._sr_dirty = False
+            return self._sr_cache
             return [], []
 
         price_min = df["最低價"].min()
@@ -225,92 +225,106 @@ class cStock(BasicUnit):
         # 支撐取最近（最高）2條，壓力取最近（最低）2條
         supports = sorted(supports, reverse=True)[:2]
         resistances = sorted(resistances)[:2]
-        return supports, resistances
+        self._sr_cache = (supports, resistances)
+        self._sr_dirty = False
+        return self._sr_cache
 
    
-    def _draw_kline_panel(self,ax):
+    def _draw_kline_panel(self, ax):
         ax.set_title(self.getName(), color=self.palette.fg)
-        self.max =max(self.df['最高價'])
-        self.min = min(self.df['最低價'])
-        #print(f"max/min={self.max} {self.min} ")
-        for i, r in self.df.iterrows():
-            is_up = r['收盤價'] >= r['開盤價']
-            c = self.palette.rise if is_up else self.palette.fall #bar 的color決定
-            #在此改善if self.max 時將label位置標籤不論漲跌,都標示max & 收盤價:todo
+        df = self.df.reset_index(drop=True)
+        n = len(df)
+        x = np.arange(n)
 
-            ax.plot([i, i], [r['最低價'], r['最高價']], color=c, lw=1)
-            ax.add_patch(plt.Rectangle((i-0.3, min(r['開盤價'], r['收盤價'])), 0.6, abs(r['開盤價']-r['收盤價']), color=c))            
-            # ── 根據 README 補足的高低價標籤邏輯 [1, 2] ,避免k棒與text重疊 good──
-            if (i % self.TICK_INTERVAL == 0 or i == len(self.df)-1) or ((i <= (len(self.df)-3)) & self.getMaxMinDf(r) & (i % self.TICK_INTERVAL != 0) ):                                        #避免k棒MAX與TICK_INTERVAL重疊
-                if is_up | (self.max == r['最高價']):
-                    ax.text(i, r['最高價']*1.002, f"{r['最高價']}\n{r['收盤價']}", color=c, fontsize=7, ha='center', va='bottom')
-                else:
-                    ax.text(i, r['最低價']*0.998, f"{r['收盤價']}\n{r['最低價']}", color=c, fontsize=7, ha='center', va='top')
-                    
-        ax.plot(self.df["ma5"], color=self.palette.ma5, label="5MA")
-        ax.plot(self.df["ma20"], color=self.palette.ma20, label="20MA")
-        ax.fill_between(range(len(self.df)), self.df["ub"], self.df["lb"], color='skyblue', alpha=0.05)
+        # ── 向量化 K 線繪製 (單次 vlines + bar，取代逐根 Rectangle) ──
+        is_up = df['收盤價'].values >= df['開盤價'].values
+        wick_colors = np.where(is_up, self.palette.rise, self.palette.fall)
+        self.max = float(df['最高價'].max())
+        self.min = float(df['最低價'].min())
+
+        ax.vlines(x, df['最低價'].values, df['最高價'].values,
+                  colors=wick_colors, lw=1)
+
+        body_bottom = np.minimum(df['開盤價'].values, df['收盤價'].values)
+        body_height = np.abs(df['收盤價'].values - df['開盤價'].values)
+        up_mask = is_up
+        down_mask = ~is_up
+        if up_mask.any():
+            ax.bar(x[up_mask], body_height[up_mask], 0.6,
+                   bottom=body_bottom[up_mask], color=self.palette.rise)
+        if down_mask.any():
+            ax.bar(x[down_mask], body_height[down_mask], 0.6,
+                   bottom=body_bottom[down_mask], color=self.palette.fall)
+
+        # ── 價格標籤 (刻度 + 極值) ──
+        tick_mask = np.zeros(n, dtype=bool)
+        tick_mask[::self.TICK_INTERVAL] = True
+        tick_mask[-1] = True
+        is_extreme = (df['最高價'].values == self.max) | (df['最低價'].values == self.min)
+        extreme_mask = is_extreme & ~tick_mask
+        if n >= 3:
+            extreme_mask[n-2:] = False
+        label_indices = np.where(tick_mask | extreme_mask)[0]
+
+        for i in label_indices:
+            r = df.iloc[i]
+            if is_up[i] or (self.max == r['最高價']):
+                ax.text(i, float(r['最高價']) * 1.002,
+                        f"{r['最高價']}\n{r['收盤價']}",
+                        color=wick_colors[i], fontsize=7, ha='center', va='bottom')
+            else:
+                ax.text(i, float(r['最低價']) * 0.998,
+                        f"{r['收盤價']}\n{r['最低價']}",
+                        color=wick_colors[i], fontsize=7, ha='center', va='top')
+
+        # ── 均線與 Bollinger ──
+        ax.plot(x, df["ma5"], color=self.palette.ma5, label="5MA")
+        ax.plot(x, df["ma20"], color=self.palette.ma20, label="20MA")
+        ax.fill_between(x, df["ub"], df["lb"], color='skyblue', alpha=0.05)
         ax.yaxis.label.set_color(self.palette.grey)
         ax.set_ylabel("價格 (Price)", color=self.palette.grey)
         ax.grid(axis='both', linestyle='--', alpha=0.3)
 
-        # ── 自動支撐/壓力線 ──────────────────────────────────────
-        supports, resistances = self._calc_support_resistance()
-        x_end = len(self.df) - 1  # 可視區右邊界
-        legend_extra = []  # 收集 S/R proxy artist 加入 legend
-
+        # ── 支撐/壓力線 (快取) ──
+        supports, resistances = self._sr_cache
+        x_end = n - 1
+        legend_extra = []
         for i, price in enumerate(supports):
-            alpha = 0.9 if i == 0 else 0.6
+            a = 0.9 if i == 0 else 0.6
             lw = 1.5 if i == 0 else 1.0
             line, = ax.plot([], [], color='#00C853', linestyle='--', linewidth=lw,
-                            alpha=alpha, label=f"S{i+1} {price:.1f}")
-            ax.axhline(y=price, color='#00C853', linestyle='--', linewidth=lw, alpha=alpha)
+                            alpha=a, label=f"S{i+1} {price:.1f}")
+            ax.axhline(y=price, color='#00C853', linestyle='--', linewidth=lw, alpha=a)
             ax.text(x_end, price, f" S{i+1} {price:.1f}", color='#00C853',
-                    fontsize=7, va='center', ha='left', alpha=alpha,
+                    fontsize=7, va='center', ha='left', alpha=a,
                     bbox=dict(boxstyle='round,pad=0.1', facecolor=self.palette.bg, alpha=0.6, edgecolor='none'))
             legend_extra.append(line)
-
         for i, price in enumerate(resistances):
-            alpha = 0.9 if i == 0 else 0.6
+            a = 0.9 if i == 0 else 0.6
             lw = 1.5 if i == 0 else 1.0
             line, = ax.plot([], [], color='#FF1744', linestyle='--', linewidth=lw,
-                            alpha=alpha, label=f"R{i+1} {price:.1f}")
-            ax.axhline(y=price, color='#FF1744', linestyle='--', linewidth=lw, alpha=alpha)
+                            alpha=a, label=f"R{i+1} {price:.1f}")
+            ax.axhline(y=price, color='#FF1744', linestyle='--', linewidth=lw, alpha=a)
             ax.text(x_end, price, f" R{i+1} {price:.1f}", color='#FF1744',
-                    fontsize=7, va='center', ha='left', alpha=alpha,
+                    fontsize=7, va='center', ha='left', alpha=a,
                     bbox=dict(boxstyle='round,pad=0.1', facecolor=self.palette.bg, alpha=0.6, edgecolor='none'))
             legend_extra.append(line)
-
         ax.legend(loc="best", fontsize="x-small")
 
-
-    #self.dfs是擴充的dfs含kdj,成交筆數,漲跌價差,收盤價,macd,dea,dif,ma5,ma20,每筆均量,均價,bolling(lb,ub)vol_ma5每筆均量_ma5 ,self.dfs.iterrows()
-    def getMaxMinDf(self,row):              
-        result = False
-        if( (self.max == row['最高價']) | (self.min == row['最低價'])):
-            result = True
-            
-        return result
-    
     def _draw_volume_panel(self, ax):
-        self.df = self.df_all.iloc[self.start_idx-1 : self.start_idx + self.n_days].reset_index(drop=True) #已經改為第一筆是yesterday
-        viewLength = len(self.df)-1 #-1才會是viewLengt 不含昨日        
-        vol = self.df_all.iloc[self.start_idx-1:,1].reset_index(drop=True) #index 多一個下標0 & 原來的index &volumn 第一個view的yesterday [idx,成交股數]
-        yesterdayVol = vol.loc[:'成交股數'] #去除index,yesterdayVol = only成交股數[]
-        #print(f"1._draw_volume_panel vol len={len(vol)}:is 91? start_idx={self.start_idx}-1 成交股數viewLength={viewLength}應該=90 {len(yesterdayVol)}\n{yesterdayVol}")
-        colors = []
-        for i in range(viewLength): #viewLength90 -1為了避免overflow            
-            if yesterdayVol[i] <= yesterdayVol[ (i+1) ]: #昨日成交數 <= 當日成交股數
-                colors.append(self.palette.rise)        #當日成交數的顏色 if 量增
-            else:
-                colors.append(self.palette.fall)
-            print(f"2... lenColors= {len(colors)}")
-        
-        #復原正確的view windows data & reset_index=0
         self.df = self.df_all.iloc[self.start_idx : self.start_idx + self.n_days].reset_index(drop=True)
-        #vol = self.df['成交股數'] / 1000
-        print(f"3.(Total df:colors:\n {vol}:{colors})")
-        ax.bar(range(len(self.df)), vol, color=colors, alpha=0.6)        
+        vol = self.df['成交股數'] / 1000
+        n = len(vol)
+
+        # ── 向量化色彩：量增紅、量縮綠 ──
+        if n >= 2:
+            vol_arr = vol.values
+            colors = np.where(vol_arr[1:] >= vol_arr[:-1], self.palette.rise, self.palette.fall)
+            colors = np.append(colors, colors[-1] if len(colors) else self.palette.rise)
+        else:
+            colors = [self.palette.rise] * n
+
+        ax.bar(range(n), vol, color=colors, alpha=0.6)
         ax.plot(self.df["vol_ma5"], color=self.palette.ma5, lw=1, label="5MA均量")
                 
         # ── 智慧 Y 軸：上限取 95 百分位 * 1.2，避免單根大量壓扁全圖
@@ -371,31 +385,32 @@ class cStock(BasicUnit):
 
     def update_view(self, fig, axes):
         self.df = self.df_all.iloc[self.start_idx : self.start_idx + self.n_days].reset_index(drop=True)
-        # ── Bug Fix: 每次 update 前先清空 vlines，避免累積舊的已失效 vline ──
+
+        # ── 重置快取旗標當可視區變更 ──
+        self._sr_dirty = True
+
         self.vlines.clear()
         for ax in axes:
             ax.clear()
             ax.set_facecolor(self.palette.bg)
-            # 重建 vline，每次 clear 後必須重建，存入 self.vlines
             self.vlines.append(ax.axvline(x=0, color=self.palette.fg, linestyle='--', visible=False))
             ax.grid(True, color=self.palette.grid, ls='--', alpha=0.4)
             ax.yaxis.label.set_color(self.palette.grey)
             ax.tick_params(axis='y', colors=self.palette.grey)
-            #設置邊框(spines)顏色為spines,&both XYticket color&label palette.grey
             for spine in ax.spines.values():
                 spine.set_color(self.palette.fg)
-            for l in ax.get_xticklabels(): #xaxis:                
-                l.set_color(self.palette.grey)                
-            for l in ax.get_yticklabels():  #yaxis:
-                l.set_color(self.palette.grey)
-        
+            for lab in ax.get_xticklabels():
+                lab.set_color(self.palette.grey)
+            for lab in ax.get_yticklabels():
+                lab.set_color(self.palette.grey)
+
         self._draw_kline_panel(axes[0])
         self._draw_volume_panel(axes[1])
         self._draw_macd_panel(axes[2])
         self._draw_kdj_panel(axes[3])
         self._setup_xticks(axes[3])
-        self._rebuild_overlays(axes)   # ── 重建被 ax.clear() 清掉的 info_box / emoji overlay
-        self._redraw_drawings(axes[0], axes[1])  # ── 重繪使用者繪圖物件
+        self._rebuild_overlays(axes)
+        self._redraw_drawings(axes[0], axes[1])
         fig.canvas.draw_idle()
 
     def _setup_xticks(self, ax):
