@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vs/
+.vscode/settings.json
+
+# Environment
+.claude_agent.env
+*.pfx
+
+# Logs
+*.log
+
+# DLL (large binaries — uncomment if needed)
+# *.dll
+
+# OS
+.DS_Store
+Thumbs.db

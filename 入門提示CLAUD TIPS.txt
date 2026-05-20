@@ -1,0 +1,166 @@
+入門提示 ││ 歡迎回來！ │ 執行 /init 指令建立 CLAUDE.md 文件，其中包含 Claude 的操作說明
+
+新增代理視圖（研究預覽）：顯示所有 Claude Code 會話的清單——正在運行、卡住等等…
+
+新增 `/goal` 指令：設定完成條件，Claude 將在回合中持續工作，直到滿足條件為止。
+
+新增 `/scroll-speed` 指令，用於調整滑鼠滾輪滾動速度，並可即時預覽
+
+/release-notes 了解更多 嘗試“<filepath> 是如何工作的？”
+
+使用 ? 查看快捷鍵
+! for shell mode        double tap esc to clear input      ctrl + shift + _ to undo
+  / for commands          shift + tab to auto-accept edits   alt + v to paste images
+  @ for file paths        ctrl + o for verbose output        alt + p to switch model
+  & for background        ctrl + t to toggle tasks           ctrl + s to stash prompt
+  /btw for side question  backslash (\) + return (⏎) for     ctrl + g to edit in $EDITOR
+                          newline                            /keybindings to customize
+/
+ Version 2.1.138:
+     · Internal fixes
+ /release-notes
+  ⎿  Version 2.1.139:
+     · Added agent view (Research Preview): a single list of every Claude Code session — running, blocked on you, or done. Run claude agents to get started. See
+     https://code.claude.com/docs/en/agent-view
+     · Added /goal command: set a completion condition and Claude keeps working across turns until it's met. Works in interactive, -p, and Remote Control. Shows live
+     elapsed/turns/tokens as an overlay panel
+     · Added /scroll-speed command to tune mouse wheel scroll speed with a live preview
+     · Added claude plugin details <name> to show a plugin's component inventory and projected per-session token cost
+     · Added transcript view navigation: ? for keyboard shortcuts, {/} to jump between user prompts, v to toggle shortcut panel
+     · Added hook args: string[] field (exec form) that spawns the command directly without a shell, so path placeholders never need quoting
+     · Added hook continueOnBlock config option for PostToolUse — set to true to feed the hook's rejection reason back to Claude and continue the turn
+     · MCP stdio servers now receive CLAUDE_PROJECT_DIR in their environment, matching hooks. Plugin configs can reference ${CLAUDE_PROJECT_DIR} in commands
+     · Compaction prompt now asks the model to preserve sensitive user instructions
+     · /mcp Reconnect now picks up .mcp.json edits without a restart, and shows the HTTP status and URL when reconnecting fails
+     · /context all per-skill token estimates now account for the model's tokenizer and show rounded values
+     · claude plugin install <name>@<marketplace> now auto-refreshes the marketplace and retries before reporting a plugin as not found
+     · /plugin installed-plugin details now show hook event names and MCP server names cleanly
+     · /context now shows the providing plugin's name for plugin-sourced skills
+     · Remote MCP server reconnect retry on transient failures is now enabled for all users
+     · API requests from subagents now carry x-claude-code-agent-id / x-claude-code-parent-agent-id headers, and claude_code.llm_request OTEL spans include agent_id /
+      parent_agent_id attributes
+     · Remote Control, /schedule, claude.ai MCP connectors, and notification preferences are now disabled when ANTHROPIC_API_KEY / apiKeyHelper / ANTHROPIC_AUTH_TOKEN
+      is set, even if a Claude.ai login also exists. Unset the API key to use these features
+     · Fixed a deadlock where expired credentials and the forceRemoteSettingsRefresh policy setting blocked claude auth login/logout/status with no way to recover
+     · Fixed autoAllowBashIfSandboxed not auto-approving commands with shell expansions like $VAR and $(cmd)
+     · Fixed a bug where a hook writing to the terminal could corrupt an on-screen interactive prompt; hooks now run without terminal access
+     · Fixed unbounded memory growth when an HTTP/SSE MCP server streams non-protocol data — response bodies now capped at 16 MB per SSE frame
+     · Fixed Skill(name *) permission rules — the wildcard form now works as a prefix match, matching Bash(ls *) behavior
+     · Fixed settings hot-reload not detecting edits to symlinked ~/.claude/settings.json
+     · Fixed plugin details failing to load when the marketplace key differs from the manifest name
+     · Fixed /model picker "Default" row not reflecting ANTHROPIC_DEFAULT_OPUS_MODEL/ANTHROPIC_DEFAULT_SONNET_MODEL overrides
+     · Fixed spurious "stream idle timeout" 5 minutes after a response completed, caused by the watchdog timer not being cleared on stream cancellation
+     · Fixed silent exit 1 when 10+ MCP servers are configured and the cache directory is unwritable — the error message now includes the underlying cause
+     · Fixed a typing cursor blinking on tab names, list pointers, and select rows in dialogs
+     · Fixed transcript view letter shortcuts not working after mouse click
+     · Fixed Bash-mode up-arrow history repeating the first entry and clobbering the in-progress draft
+     · Fixed pasting or dropping multiple images only inserting the last one
+     · Fixed hyperlinks using unreadable dark navy on dark themes — they now adapt to the active theme
+     · Fixed model picker showing a redundant "Current model" row for third-party users whose model is set to the opus alias
+     · Fixed legacy Opus picker entry on PAYG 3P providers resolving to the same model as the default entry
+     · Fixed mouse wheel scrolling speed in Cursor and VS Code 1.92–1.104; the trackpad now scrolls at a steady rate and the mouse wheel keeps ~3 lines per notch
+     · Fixed scroll behavior in Windows Terminal and VS Code when attached to background sessions
+     · Fixed MCP resources from disconnected servers lingering in @server: autocomplete
+     · Fixed two-file diff snippets over-reporting the number of truncated lines by one
+     · Fixed Grep results not relativizing Windows drive-letter paths and count mode reporting wrong totals for single-file paths
+     · Fixed border-embedded text overflowing on CJK/emoji due to visual cell width miscalculation
+     · Fixed fuzzy-match highlighting splitting emoji and astral-plane characters mid-pair
+     · Fixed skill argument names containing regex metacharacters breaking argument substitution
+     · Fixed ProgressBar rendering a full block for an almost-full fractional cell
+     · Fixed task polling and fs.watch being resurrected when the last subscriber leaves while a fetch is in flight
+     · Fixed plugin dependency resolution leaving a stale count when the manifest name differs from the source identifier
+     · Fixed Insights Time-of-Day chart skewing when a session has an unparseable timestamp
+     · Fixed keybindings using only the cmd/super/win modifier being flagged as unparseable
+     · Fixed claude_code.active_time.total OpenTelemetry metric not being emitted in --print mode
+     · Fixed claude plugin update not preserving cross-plugin symlinks inside a marketplace
+     · [VSCode] Press Cmd/Ctrl+Shift+T to reopen the most recently closed session tab, configurable via claudeCode.enableReopenClosedSessionShortcut
+
+MCP ADD
+claude mcp add --transport http n8n-mcp https://<your-n8n-domain>/mcp-server/http \
+  --header "Authorization: Bearer <YOUR_N8N_MCP_TOKEN>"n8n MCP 透過 n8n 內建的 MCP 伺服器，將受支援的 MCP 客戶端連接到您的 n8n 工作流程中,n8n存取並運行您的 n8n 工作流程需要使用特定於該用戶的 URL。請在此處獲取您的 URL。透過 n8n 內建的 MCP 伺服器，將受支援的 MCP 客戶端連接到您的 n8n 工作流程中
+claude mcp add --transport http cloudflare https://bindings.mcp.cloudflare.com/mcp
+claude mcp add --transport http mem https://mcp.mem.ai/mcp 這本 AI 筆記本能幫你處理心中的一切煩惱
+claude mcp add --transport http gainsight-staircase-ai https://mcp.staircase.ai/mcp 結合客戶情境的強大 AI 工作流程
+claude mcp add --transport http postman https://mcp.postman.com/minimal 為你的編碼代理提供 API 上下文
+claude mcp add --transport http planetscale https://mcp.pscale.dev/mcp/planetscale 已通過身份驗證，可存取您的 Postgres 與 MySQL 資料庫。
+# Basic syntax
+claude mcp add --transport sse <name> <url>
+
+# Real example: Connect to Asana
+claude mcp add --transport sse asana https://mcp.asana.com/sse
+
+# Example with authentication header
+claude mcp add --transport sse private-api https://api.company.com/sse \
+  --header "X-API-Key: your-key-here"
+AGENT/SUB-AGEND的MCP在啟動 Claude Code 之前，請先激活您的 virtualenv 或 conda 環境。若希望環境變數能在不同的 Bash 命令中持續有效，請在啟動 Claude Code 之前將 CLAUDE_ENV_FILE 設定為某個 shell 指令碼，或使用 SessionStart 釘子函數來動態設定這些變數。
+# Basic syntax
+claude mcp add --transport http <name> <url>
+
+# Real example: Connect to Notion
+claude mcp add --transport http notion https://mcp.notion.com/mcp
+
+# Example with Bearer token
+claude mcp add --transport http secure-api https://api.example.com/mcp \
+  --header "Authorization: Bearer your-token"
+
+
+
+
+
+https://code.claude.com/docs/en/agent-view
+透過代理端視圖管理多個代理程式
+在 claude agents 模式下打開的代理視圖，將所有後臺會話集中在一個界面上：顯示當前正在運行的程序、需要用戶操作的環節，以及已完成的任務。您可以隨時啟動新的會話，一目瞭然地查看其狀態，而無需翻閱繁瑣的記錄。只有當會話需要您的干預時，您才會被通知。這些會話即便沒有終端連接，也能在後臺持續運行。
+當你有幾項克勞德可以同時處理的獨立任務時，建議使用代理視圖模式。這些任務例如修復錯誤、審查拉取請求或分析日誌等。如果你希望與他人一起解決某個問題，只需加入會話，然後像平常一樣以互動方式使用克勞德 Code 即可
+在代理視圖中的執行過程是獨立進行的，且只向您報告結果。如需與子代理、代理團隊及工作樹進行比較，請參見「並行執行代理」。
+可透過代理視圖來監控會話過程，包括查看狀態圖示、查看對方輸入內容並回覆、附加檔案、整理會話內容，以及使用鍵盤快捷鍵操作。
+從命令列管理會話How background sessions are hosted by the supervisor process監管進程是如何處理後臺會話的
+此操作流程會打開代理視圖、建立會話、透過面板回覆消息，並將整段對話記錄下來。
+Open agent view  開啟代理視圖
+claude agents
+代理視圖開啟時，底部有輸入欄，隨著會話的開始，表格會自動填滿內容。隨時按 Esc 可以退出。您的會話會持續進行。
+
+
+----------clauld code的debug-architect.md
+名稱："debug-architect"
+
+描述："使用此代理作為您的主要專業程序員助手，滿足所有研究、開發、調試和系統集成需求。它擅長解決複雜問題、自主分解任務以及安全地部署 API。<示例>\\n上下文：用戶正在啟動一個涉及多個組件和外部 API 集成的新項目。"\\n<註釋>\\n用戶描述了一個複雜的多步驟項目。 "調試架構師代理應該分解工作，並可能創建子代理以進行並行實現。
+註解
+工具：CronCreate、CronDelete、CronList、ExitWorktree、Grep、RemoteTrigger
+模型：繼承
+顏色：紅色
+記憶體：項目
+---
+# 持久代理記憶體
+您在 `D:\WORKCS\TEST\2026\YunataOneAPI_Python\YunataOneAPI_Python\.claude\agent-memory\debug-architect\` 處有一個持久的、基於檔案的記憶體系統。
+目錄已存在－請使用 Write 工具直接寫入（不要執行 mkdir 或檢查其是否存在）。
+你應該隨著時間的推移逐步建立這個記憶系統，以便在未來的對話中能夠全面了解使用者是誰、他們希望如何與你合作、哪些行為需要避免或重複，以及使用者交付任務背後的背景資訊。
+如果用戶明確要求你記住某些內容，請立即將其儲存為最合適的類型。如果他們要求你忘記某些內容，請找到並刪除相關的條目。
+## 記憶類型
+你的記憶系統中可以儲存幾種不同的記憶類型：
+<types>
+
+<type>
+
+<name>user</name>
+
+<description>包含使用者角色、目標、職責和知識的資訊。良好的使用者記憶有助於你根據使用者的偏好和視角調整未來的行為。你讀取和寫入這些記憶的目標是
+了解使用者是誰，以及如何才能最好地幫助他們。例如，你與資深軟體工程師的合作方式應該與與初次接觸程式設計的學生的合作方式有所不同。 </description>
+請記住，此舉旨在幫助使用者。避免記錄可能被視為負面評價或與你們共同努力完成的工作無關的使用者回憶。 </description>
+
+<when_to_save>當您了解使用者的角色、偏好、職責或知識等任何細節時</when_to_save>
+
+<how_to_use>當您的工作需要參考使用者的個人資料或視角時。 </how_to_use>例如，如果使用者要求你解釋程式碼的某一部分，
+你應該根據他們認為最有價值的具體細節來回答這個問題，或者幫助他們根據已有的領域知識建立相應的思維模型。 </how_to_use>
+
+<examples>
+
+使用者：我是一名資料科學家，正在研究我們現有的日誌記錄機制。
+助理：[節省使用者記憶：使用者是資料科學家，目前專注於可觀測性/日誌記錄]
+使用者：我編寫 Go 程式碼已經十年了，但這是我第一次接觸這個專案的 React 部分。
+助理：[節省使用者記憶：擁有深厚的 Go 專業知識，但對 React 和這個專案的前端不太熟悉—用後端類似的例子來解釋前端程式碼]
+</examples>
+</type>
+<type>
+<name>回饋</name>
+<description>使用者就如何進行工作給你的指導－包括應該避免什麼和應該繼續做什麼。 </description>
+這些都是非常重要的記憶類型，需要重複閱讀和記錄，因為它們能幫助你保持思路清晰，並能靈活應對專案中的工作方式。記錄失敗

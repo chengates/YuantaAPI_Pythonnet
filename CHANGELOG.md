@@ -1,0 +1,155 @@
+# CHANGELOG - YuantaAPI_Pythonnet.py
+
+## [Unreleased]
+
+### Added
+
+- **StockQuoteState Class**: New class for encapsulating stock quote state management
+  - Supports five-tick quotes, transaction details, watchlist data updates
+  - Automatic calculation of OHLC, price change, estimated daily volume
+  - In/out volume analysis for major/minor player ratio assessment
+- **Global SUBSCRIPTION_STATE Dictionary**: Unified storage for subscription data
+  - `stocks`: Quote states for each stock (StockQuoteState instances)
+  - `system`: System messages
+  - `rq_rp`: Query responses
+- **Async show() Method**: Asynchronous display of subscription response information
+  - Updates UI every 1/60 seconds with all subscribed stock information
+  - Saves complete quote records to CSV every 5 seconds
+  - Supports paginated display and in/out volume analysis
+- **Optimized Subscription Response Handlers**:
+  - `SubscribeFiveTick_out`: Handles five-tick quotes (tested heartbeat signal)
+  - `SubscribeWatclistAll_Out`: Handles watchlist quotes
+  - `SubscribeStocktick_out`: Handles tick-by-tick transaction details
+  - `SubscribeWatchlist_Out`: Handles specific field quotes
+- **Async CSV Saving**: Non-blocking data persistence functionality
+  - `_save_to_csv_async`: Asynchronous CSV file saving
+  - Supports concurrent saving for multiple stocks
+- **Technical Indicator Calculations**: Added basic price momentum and moving average analysis
+  - `ma5`, `ma10`, `price_momentum` included in saved records and runtime display
+- **Buy/Sell Pressure Analysis**: Added buy/sell total volume, imbalance, and pressure metrics
+  - `buy_total_volume`, `sell_total_volume`, `buy_sell_imbalance`, `buy_sell_pressure` saved to CSV
+- **Enhanced Error Handling**: Improved exception catching and logging
+  - Added error handling to all critical functions
+  - Detailed debug information output
+- **Program Architecture Optimization**:
+  - Modular design for easier maintenance and extension
+  - Unified data processing workflow
+  - Framework support for large-cap/mid-cap/small-cap/speculative stock analysis
+
+### Changed
+
+- **Data Storage Unification**: All received messages now stored in SUBSCRIPTION_STATE dictionary
+- **UI Update Frequency**: Changed from synchronous to asynchronous updates every 1/60 seconds
+- **Data Persistence**: Implemented periodic saving every 5 seconds instead of on-demand
+
+### Technical Details
+
+- **Language**: All comments and documentation in Traditional Chinese
+- **Framework**: Uses pythonnet for .NET DLL integration
+- **Async Processing**: Implemented with asyncio for non-blocking operations
+- **Data Analysis**: Added volume analysis for institutional vs retail trading patterns
+- **File Output**: CSV format with timestamp, OHLC, volume, and ratio data
+
+### Testing
+
+- Verified FiveTick subscription returns heartbeat signal with stock_id 2317 data
+- Confirmed data persistence and UI updates work correctly
+- Validated in/out volume ratio calculations
+
+### Documentation
+
+- Added comprehensive docstrings to all new classes and methods
+- Included usage examples and parameter descriptions
+- Referenced Yuanta OneAPI documentation (page 22+) for protocol details
+
+## 版本 [2025-02-28]
+
+### 功能改進
+
+#### 1. 統一訂閱回應格式為字典結構
+
+- **修改**: `SubscribeFiveTick_out()` 函數
+- **變更**: 將訂閱五檔報價回應從 `result` 字符串格式改為字典格式
+- **好處**: 便於後續 UI 顯示和數據分析，易於擴展其他訂閱回應
+
+#### 2. 實現異步 show() 方法
+
+- **新增**: `async def show()` 函數，支持異步 UI 更新
+- **功能**:
+  - 每 1/60 秒更新一次 UI 顯示訂閱信息
+  - 每 5 秒完整保存一筆數據記錄到本地 CSV 檔案
+  - 使用 asyncio 異步方法避免阻塞主線程
+  - 支持多檔股票同時管理
+
+#### 3. 數據持久化功能
+
+- **新增**: `_save_to_csv_async()` 異步函數
+- **功能**:
+  - 每 5 秒自動保存數據到 CSV 檔案（檔名格式: `{stock_id}.csv`）
+  - 包含欄位:
+    - 時間 (timestamp)
+    - 股票代碼 (stock_id)
+    - 索引值 (byIndexFlag)
+    - 五檔買價、買量、賣價、賣量
+  - 自動檢測文件是否存在，決定是否寫入表頭
+
+#### 4. UI 顯示功能
+
+- **新增**: `_display_quote_info()` 函數
+- **功能**:
+  - 實時顯示五檔買賣盤
+  - 計算並顯示買盤和賣盤佔比
+  - 便於分析主力/散戶行為和內外盤成交量
+
+#### 5. 代碼修正
+
+- **修正**: 第 2482 行 `asyncio.show()` 改為 `asyncio.run(show())`
+  - 原因: `asyncio.show()` 不是有效的 asyncio 函數，應使用 `asyncio.run()` 執行異步函數
+
+### 技術細節
+
+#### 數據結構改進
+
+```python
+# 舊格式 (result 字符串)
+result = 'FiveTick五檔訂閱結果:\r\n...'
+
+# 新格式 (字典結構)
+fivetick_data = {
+    'abyKey': str,
+    'byMarketNo': str,
+    'stock_id': str,
+    'byIndexFlag': str,
+    'timestamp': float,
+    'five_tick_data': {
+        'buy_prices': [int, ...],
+        'buy_volumes': [int, ...],
+        'sell_prices': [int, ...],
+        'sell_volumes': [int, ...],
+    }
+}
+```
+
+#### 異步流程
+
+1. 訂閱回應事件觸發 → `SubscribeFiveTick_out()` 處理
+2. 數據保存為字典格式到 `dtsFiveTickOrder`
+3. `show()` 異步任務監控數據字典
+4. 每 1/60 秒顯示當前報價
+5. 每 5 秒保存一筆完整記錄到 CSV
+6.- [ ] 考慮收盤時間~盤後搓合,這之間,暫停輸出~盤後搓合後保存一筆完整記錄到csv->停止輸出csv
+7.- [ ] 完成盤後搓合後,最終再append一筆,以日為單位的"@股號D.csv"(例如:@2317D.csv,@2330D.csv...,依追蹤的自選股來生成,資料格式除了timestamp省略時間改成日期,其餘欄位同5秒csv),利於隔日快速取得今日資訊
+8.- [ ] bug,目前csv缺失pct_of_yesterday_avg,可根據"@股號D.csv"快速取得資料
+
+### 待完成項目
+
+- [ ] 實現其他訂閱回應（如 Watchlist、StockTick 等）的字典格式轉換
+- [ ] 完善大戶/散戶佔比分析算法
+- [ ] 實現日成交量預估邏輯
+- [ ] 添加 Web UI 顯示報價和分析結果
+- [ ] 支持多股票實時監控
+
+### 相關文檔
+
+- 參考: 元大證券OneAPI_Python使用說明.pdf (第 22 頁起)
+- 參考: IO_Doc 資料夾中的各項回應說明
