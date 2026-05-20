@@ -2700,11 +2700,41 @@ def send_OvFuture_order(yuanta):
         #測試環境傳送後要休息一下
         time.sleep(2)
 
-#訂閱報價    
+# ═══════════════════════════════════════════════════════════════
+# 自選股 JSON 設定載入
+# ═══════════════════════════════════════════════════════════════
+WATCHLIST_CONFIG = {}
+WATCHLIST_NAME = "自選股1"
+
+def load_watchlist_config(path: str = "watchlist.json"):
+    """載入自選股 JSON 設定檔。"""
+    global WATCHLIST_CONFIG
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            WATCHLIST_CONFIG = json.load(f)
+
+def get_watchlist(name: str = None) -> dict:
+    """取得指定自選股清單，預設使用 WATCHLIST_NAME。"""
+    name = name or WATCHLIST_NAME
+    return WATCHLIST_CONFIG.get(name, {"stocks": [], "futures": []})
+
+def get_watchlist_stocks(name: str = None) -> list:
+    return get_watchlist(name).get("stocks", [])
+
+def get_watchlist_futures(name: str = None) -> list:
+    return get_watchlist(name).get("futures", [])
+
+try:
+    import json
+    load_watchlist_config()
+except Exception as e:
+    print(f"[watchlist] 載入設定失敗: {e}")
+
+#訂閱報價
 #WatchlistAll 98.10.70.10
 def SubscribeWatchlistAll_api(yuanta):
-    lstWatchlistAll = List[WatchlistAll]()   
-    for code in ['2330', '2317', '2344']:
+    lstWatchlistAll = List[WatchlistAll]()
+    for code in get_watchlist_stocks():
         watch = WatchlistAll()
         watch.MarketNo = 1
         watch.StockCode = code
@@ -2715,7 +2745,7 @@ def SubscribeWatchlistAll_api(yuanta):
 #UnsubWatchlistAll 98.10.70.10
 def UnsubWatchlistAll_api(yuanta):
     lstWatchlistAll = List[WatchlistAll]()
-    for code in ['2330', '2317', '2344']:
+    for code in get_watchlist_stocks():
         watch = WatchlistAll()
         watch.MarketNo = 1  #個股
         watch.StockCode = code
@@ -2748,44 +2778,35 @@ public enum enumMarketType : byte
 #訂閱五檔報價
 #FiveTick 210.10.60.10     
 def SubscribeFiveTick_api(yuanta):
-    lstFiveTick = List[FiveTickA]()    
-    fiveTickA = FiveTickA() 
-    fiveTickA.MarketNo = 3           #期貨
-    fiveTickA.StockCode = 'TXFPM1'   #台指PM近
-    lstFiveTick.Add(fiveTickA)
-
-    fiveTickA = FiveTickA()
-    fiveTickA.MarketNo = 1           #個股
-    fiveTickA.StockCode = '2330'     #個股商品代碼
-    lstFiveTick.Add(fiveTickA)
-
-    fiveTickA = FiveTickA()
-    fiveTickA.MarketNo = 1           #個股
-    fiveTickA.StockCode = '2317'     #個股商品代碼
-    lstFiveTick.Add(fiveTickA)
-
-    fiveTickA = FiveTickA()
-    fiveTickA.MarketNo = 1           #個股
-    fiveTickA.StockCode = '2344'     #個股商品代碼
-    lstFiveTick.Add(fiveTickA)
-
+    lstFiveTick = List[FiveTickA]()
+    for code in get_watchlist_futures():
+        ft = FiveTickA()
+        ft.MarketNo = 3
+        ft.StockCode = code
+        lstFiveTick.Add(ft)
+    for code in get_watchlist_stocks():
+        ft = FiveTickA()
+        ft.MarketNo = 1
+        ft.StockCode = code
+        lstFiveTick.Add(ft)
     yuanta.SubscribeFiveTickA(lstFiveTick)
 
 #取消訂閱五檔報價
 #UnSubscribeFiveTick 210.10.60.10
 def UnSubscribeFiveTick_api(yuanta):
-    lstFiveTick = List[FiveTickA]()    
-    fiveTickA = FiveTickA() 
-    fiveTickA.MarketNo =3
-    fiveTickA.StockCode ='TXFPM1'
-    lstFiveTick.Add(fiveTickA)                    
+    lstFiveTick = List[FiveTickA]()
+    for code in get_watchlist_futures():
+        ft = FiveTickA()
+        ft.MarketNo = 3
+        ft.StockCode = code
+        lstFiveTick.Add(ft)
     yuanta.UnsubscribeFivetickA(lstFiveTick)
 
 #訂閱報價表指定欄位
 #Watchlist 210.10.70.11
 def SubscribeWatchlist_api(yuanta):
     lstWatchlist = List[Watchlist]()
-    for code in ['2330', '2317', '2344']:
+    for code in get_watchlist_stocks():
         watch = Watchlist()
         watch.IndexFlag = 7 #IndexFlag訂閱索引值
         watch.MarketNo = 1
@@ -2797,7 +2818,7 @@ def SubscribeWatchlist_api(yuanta):
 #UnSubscribeWatchlist 210.10.70.11
 def UnSubscribeWatchlist_api(yuanta):
     lstWatchlist = List[Watchlist]()
-    for code in ['2330', '2317', '2344']:
+    for code in get_watchlist_stocks():
         watch = Watchlist()
         watch.IndexFlag = 7 #IndexFlag訂閱索引值
         watch.MarketNo = 1
@@ -2809,7 +2830,7 @@ def UnSubscribeWatchlist_api(yuanta):
 #StockTick 210.10.40.10
 def SubscribeStocktick_api(yuanta):
     lstStocktick = List[StockTick]()    
-    for code in ['2330', '2317', '2344']:
+    for code in get_watchlist_stocks():
         stocktick = StockTick()
         stocktick.MarketNo =  1
         stocktick.StockCode = code
@@ -2820,7 +2841,7 @@ def SubscribeStocktick_api(yuanta):
 #UnSubscribeStocktick210.10.40.10
 def UnSubscribeStocktick_api(yuanta):
     lstStocktick = List[StockTick]()    
-    for code in ['2330', '2317', '2344']:
+    for code in get_watchlist_stocks():
         stocktick = StockTick()
         stocktick.MarketNo =  1
         stocktick.StockCode = code

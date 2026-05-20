@@ -8,12 +8,27 @@ import os
 import queue
 import time
 import threading
-from flask import Flask, Response, render_template_string, jsonify
+from flask import Flask, Response, render_template_string, jsonify, request
+from option_pricing import OptionPricing, put_call_ratio_analysis
 
 app = Flask(__name__)
 sse_queue = queue.Queue()
 
-STOCKS = ["2330", "2317", "2344"]
+WATCHLIST_PATH = "watchlist.json"
+_active_watchlist = "自選股1"
+
+def load_watchlists():
+    if os.path.exists(WATCHLIST_PATH):
+        with open(WATCHLIST_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {"自選股1": {"stocks": ["2330", "2317", "2344"], "futures": []}}
+
+def get_active_stocks():
+    wl = load_watchlists()
+    entry = wl.get(_active_watchlist, wl.get("自選股1", {"stocks": []}))
+    return entry.get("stocks", [])
+
+STOCKS = get_active_stocks()
 DATA_INTERVAL = 2
 HTML = r"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -24,6 +39,9 @@ HTML = r"""<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1117;color:#c9d1d9;font-family:'Microsoft YaHei',sans-serif;padding:16px}
 h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
+.header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.wl-select{padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:13px}
+.wl-select:focus{outline:none;border-color:#58a6ff}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
 .card h2{font-size:16px;display:flex;justify-content:space-between}
@@ -42,10 +60,23 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 </style>
 </head>
 <body>
+<div class="header">
 <h1>Yuanta OneAPI — 即時監控</h1>
+<select class="wl-select" id="wlSelect" onchange="switchWatchlist(this.value)"></select>
+</div>
 <div class="grid" id="grid"></div>
 <div class="last-update" id="status">等待資料...</div>
 <script>
+async function loadWatchlists(){
+  const r=await fetch('/api/watchlists');const d=await r.json();
+  const sel=document.getElementById('wlSelect');
+  sel.innerHTML=d.watchlists.map(w=>`<option value="${w}" ${w===d.active?'selected':''}>${w}</option>`).join('');
+}
+async function switchWatchlist(name){
+  await fetch('/api/watchlist/'+encodeURIComponent(name),{method:'POST'});
+  location.reload();
+}
+loadWatchlists();
 const cards={};
 function fmt(n,d=2){return n!=null?Number(n).toFixed(d):'--'}
 function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
@@ -136,8 +167,9 @@ def _num(row, key, cast=float):
 def poll_worker():
     last_mtimes = {}
     while True:
+        stocks = get_active_stocks()
         data = {}
-        for sid in STOCKS:
+        for sid in stocks:
             path = f"{sid}.csv"
             try:
                 mt = os.path.getmtime(path) if os.path.exists(path) else 0
@@ -174,11 +206,70 @@ def stream():
 @app.route("/api/stocks")
 def api_stocks():
     result = {}
-    for sid in STOCKS:
+    for sid in get_active_stocks():
         rec = read_latest_csv(sid)
         if rec:
             result[sid] = rec
     return jsonify(result)
+
+
+@app.route("/api/watchlists")
+def api_watchlists():
+    wl = load_watchlists()
+    return jsonify({
+        "watchlists": list(wl.keys()),
+        "active": _active_watchlist,
+    })
+
+
+@app.route("/api/watchlist/<name>", methods=["POST"])
+def api_switch_watchlist(name):
+    global _active_watchlist
+    wl = load_watchlists()
+    if name in wl:
+        _active_watchlist = name
+        return jsonify({"ok": True, "active": name, "stocks": wl[name].get("stocks", [])})
+    return jsonify({"ok": False, "error": f"自選股 '{name}' 不存在"}), 404
+
+
+@app.route("/api/options")
+def api_options():
+    """Put/Call 合理價分析。查詢參數: S(現貨價), K(履約價), days(到期天數),
+    call(市價), put(市價), vol(波動率,預設0.25)"""
+    try:
+        S = float(request.args.get("S", 0))
+        K = float(request.args.get("K", 0))
+        days = int(request.args.get("days", 30))
+        call_mkt = float(request.args.get("call", 0))
+        put_mkt = float(request.args.get("put", 0))
+        vol = float(request.args.get("vol", 0.25))
+    except (TypeError, ValueError):
+        return jsonify({"error": "無效參數"}), 400
+
+    if S <= 0 or K <= 0:
+        return jsonify({"error": "S 和 K 必須大於 0"}), 400
+
+    pricing = OptionPricing()
+    result = pricing.evaluate(S, K, days, call_mkt, put_mkt, vol)
+
+    pcr = put_call_ratio_analysis(
+        call_vol=float(request.args.get("cv", call_mkt or 1)),
+        put_vol=float(request.args.get("pv", put_mkt or 1)),
+        call_oi=float(request.args.get("coi", 0)) or None,
+        put_oi=float(request.args.get("poi", 0)) or None,
+    )
+
+    return jsonify({
+        "S": S, "K": K, "days": days,
+        "fair_call": result.fair_call,
+        "fair_put": result.fair_put,
+        "call_premium_pct": result.call_premium_pct,
+        "put_premium_pct": result.put_premium_pct,
+        "call_iv": result.call_iv,
+        "put_iv": result.put_iv,
+        "parity_diff": result.parity_diff,
+        "pcr": pcr,
+    })
 
 
 def main():
