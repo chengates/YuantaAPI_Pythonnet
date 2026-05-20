@@ -3,7 +3,7 @@
 ###特別說明:透過Pythonnet引用YuantaOneAPI.dll
 ###範例程式更新日期:2025.02.27
 
-### 修改摘要 (2026.05.12 更新)
+### 修改摘要 (2026.05.20 更新)
 ### 1. 新增 StockQuoteState 類別封裝股票報價狀態管理
 ###    - 支援五檔報價、成交明細、觀察清單等數據更新
 ###    - 自動計算開高低收、漲跌價差、估計日成交量
@@ -12,25 +12,25 @@
 ###    - stocks: 各股票報價狀態 (StockQuoteState 實例)
 ###    - system: 系統訊息
 ###    - rq_rp: 查詢回應
-### 3. 實現異步 show() 方法
+### 3. 實現異步 show() 方法 (含市場排程控制)
 ###    - 每 1/60 秒更新 UI 顯示所有訂閱股票資訊
-###    - 每 5 秒保存完整報價記錄到 CSV 文件
-###    - 支援分頁顯示和內外盤分析
+###    - 交易時段(09:00-13:30): 每 5 秒保存完整報價到 CSV
+###    - 盤後搓合(13:30-14:30): 暫停 CSV 輸出
+###    - 收盤後(14:30+): 寫入日總結 @stockID.csv 後停止
 ### 4. 優化訂閱回應處理函數
 ###    - SubscribeFiveTick_out: 處理五檔報價 (實測心跳訊號)
 ###    - SubscribeWatclistAll_Out: 處理觀察清單報價
 ###    - SubscribeStocktick_out: 處理分時成交明細
 ###    - SubscribeWatchlist_Out: 處理指定欄位報價
 ### 5. 新增異步 CSV 保存功能
-###    - _save_to_csv_async: 非阻塞式數據持久化
-###    - 支援多股票並發保存
-### 6. 增強錯誤處理和日誌記錄
-###    - 所有關鍵函數添加異常捕獲
-###    - 詳細的調試信息輸出
-### 7. 程式架構優化
-###    - 模組化設計，便於維護和擴展
-###    - 統一的數據處理流程
-###    - 支援大型股/中型股/小型股/暴力投機股分析框架
+###    - _save_to_csv_async: 非阻塞式數據持久化，支援多股票並發保存
+### 6. 修復 pct_of_yesterday_avg 缺失問題
+###    - StockQuoteState._load_yesterday_data(): 從 yesterday/ 載入昨量
+### 7. 新增日總結寫入 _write_daily_summary()
+###    - @stockID.csv: 每交易日一筆 OHLCV 供隔日快速載入
+###    - 同步更新 yesterday/{stockID}.csv 為最新日資料
+### 8. 修復 _display_quote_info() 重複顯示程式碼
+### 9. 市場排程輔助函數 _market_phase(): pre_open/trading/matching/closed
 
 import os
 import clr
@@ -43,6 +43,7 @@ import sys
 import csv
 from pathlib import Path
 import asyncio
+import pandas as pd
 
 ## 全局訂閱資料存儲狀態
 SUBSCRIPTION_STATE = {
@@ -85,6 +86,12 @@ class StockQuoteState:
         self.ma10 = None
         self.price_momentum = None
         self.last_saved_timestamp = None
+        self.yesterday_volume = None
+        self.yesterday_close = None
+        try:
+            self._load_yesterday_data()
+        except Exception as e:
+            print(f"[StockQuoteState] 載入昨日數據失敗 {stock_id}: {e}")
 
     def update_five_tick(self, byIndexFlag, buy_prices, buy_volumes, sell_prices, sell_volumes, timestamp=None):
         self.byIndexFlag = byIndexFlag
@@ -189,6 +196,21 @@ class StockQuoteState:
             self.price_diff = self.close_price - self.open_price
 
         self._update_technical_indicators()
+
+    def _load_yesterday_data(self):
+        """從 yesterday/{stock_id}.csv 載入昨日收盤量作為 prev_average_volume。"""
+        yesterday_path = os.path.join("yesterday", f"{self.stock_id}.csv")
+        if not os.path.exists(yesterday_path):
+            return
+        try:
+            df = pd.read_csv(yesterday_path)
+            if "成交股數" in df.columns and len(df) > 0:
+                self.yesterday_volume = int(df["成交股數"].sum())
+                self.prev_average_volume = self.yesterday_volume
+            if "收盤價" in df.columns and len(df) > 0:
+                self.yesterday_close = float(df["收盤價"].iloc[-1])
+        except Exception:
+            pass
 
     def _infer_prices_from_depth(self):
         if self.last_deal_price is not None:
@@ -2869,25 +2891,82 @@ SubscribeStocktick_api(objYuantaOneAPI)
  * 使用 asyncio 異步方法避免阻塞
  * 支持多檔股票管理和內外盤成交量分析
 '''
+def _market_phase() -> str:
+    """判斷目前市場階段: 'pre_open'(09:00前), 'trading'(09:00-13:30),
+    'matching'(13:30-14:30), 'closed'(14:30後)。"""
+    now = dt.datetime.now()
+    t = now.hour * 60 + now.minute
+    if t < 9 * 60:
+        return 'pre_open'
+    if t < 13 * 60 + 30:
+        return 'trading'
+    if t < 14 * 60 + 30:
+        return 'matching'
+    return 'closed'
+
+
+def _write_daily_summary(stock_id: str, state):
+    """寫入每日總結 CSV (@stock_id.csv)，每個交易日一筆。"""
+    filename = f"@{stock_id}.csv"
+    record = state.build_save_record() if isinstance(state, StockQuoteState) else state
+    if not record:
+        return
+
+    now = dt.datetime.now()
+    file_exists = os.path.exists(filename)
+
+    fieldnames = ["date", "stock_id", "open_price", "high_price", "low_price",
+                  "close_price", "total_volume", "total_in_volume", "total_out_volume",
+                  "estimated_day_volume", "trade_count"]
+    try:
+        with open(filename, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow({
+                "date": f"{now.year}{now.month:02d}{now.day:02d}",
+                "stock_id": stock_id,
+                "open_price": record.get("open_price"),
+                "high_price": record.get("high_price"),
+                "low_price": record.get("low_price"),
+                "close_price": record.get("close_price"),
+                "total_volume": record.get("deal_volume") or 0,
+                "total_in_volume": record.get("total_in_volume"),
+                "total_out_volume": record.get("total_out_volume"),
+                "estimated_day_volume": record.get("estimated_day_volume"),
+                "trade_count": record.get("trade_count"),
+            })
+        # 同步更新到 yesterday/ 供隔日載入
+        yesterday_dir = "yesterday"
+        os.makedirs(yesterday_dir, exist_ok=True)
+        yesterday_path = os.path.join(yesterday_dir, f"{stock_id}.csv")
+        with open(yesterday_path, "w", newline="", encoding="utf-8") as yf:
+            yf.write("日期,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數\n")
+            yf.write(f"{now.strftime('%Y-%m-%d')},{record.get('deal_volume') or 0},{record.get('deal_amount') or 0},{record.get('open_price')},{record.get('high_price')},{record.get('low_price')},{record.get('close_price')},{record.get('price_diff') or 0},{record.get('trade_count')}\n")
+        print(f"[{dt.datetime.now()}] 日總結寫入: {filename}, yesterday/{stock_id}.csv")
+    except Exception as e:
+        print(f"[{dt.datetime.now()}] 寫入日總結失敗 {stock_id}: {e}")
+
+
+_daily_summary_written = set()
+
+
 async def show(update_interval: float = 1/60, save_interval: float = 5, subscribe_interval: float = 5):
     """
-    異步顯示訂閱回應資訊
-    
-    Args:
-        update_interval: UI 更新間隔（默認 1/60 秒）
-        save_interval: 數據保存間隔（默認 5 秒）
-        subscribe_interval: 重新訂閱五檔回應的間隔（默認 5 秒）
-    
-    Returns:
-        list[dict]: 保存的完整數據記錄列表
+    異步顯示訂閱回應資訊，含市場排程控制。
+    09:00-13:25: 正常每 5 秒保存
+    13:25-13:30: 最後一次 CSV 保存
+    13:30-14:30: 盤後搓合，暫停 CSV 輸出
+    14:30 後:   寫入日總結 @stock_id.csv 後停止
     """
     if not SUBSCRIPTION_STATE.get('login_status', False):
         print(f"[{dt.datetime.now()}] show() 登入狀態未確認，跳過執行")
         return []
-    
+
     saved_records = []
     last_save_time = time.time()
     last_subscribe_time = time.time()
+    global _daily_summary_written
 
     try:
         if 'objYuantaOneAPI' in globals():
@@ -2899,8 +2978,19 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
 
         while True:
             current_time = time.time()
+            phase = _market_phase()
+
+            # ---- 盤後搓合結束 → 寫日總結並停止 ----
+            if phase == 'closed':
+                for stock_id, state in SUBSCRIPTION_STATE['stocks'].items():
+                    if stock_id not in _daily_summary_written:
+                        _write_daily_summary(stock_id, state)
+                        _daily_summary_written.add(stock_id)
+                print(f"[{dt.datetime.now()}] 收盤完成，CSV 輸出停止")
+                break
+
             subscribe_triggered = False
-            if current_time - last_subscribe_time >= subscribe_interval:
+            if current_time - last_subscribe_time >= subscribe_interval and phase in ('trading', 'matching'):
                 if 'objYuantaOneAPI' in globals():
                     SubscribeFiveTick_api(objYuantaOneAPI)
                     last_subscribe_time = current_time
@@ -2908,16 +2998,16 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     print(f"[{dt.datetime.now()}] 週期性重新呼叫 SubscribeFiveTick_api()")
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
-            
-            # 每 5 秒保存一筆完整數據，避免剛重新訂閱就立刻保存
+
+            # ---- 交易時段才保存 CSV (13:30 前) ----
             if not subscribe_triggered and current_time - last_save_time >= save_interval:
-                print(f"[{dt.datetime.now()}] 開始保存數據...")
+                print(f"[{dt.datetime.now()}] 開始保存數據... (phase={phase})")
                 saved_count = 0
                 for stock_id, state in SUBSCRIPTION_STATE['stocks'].items():
                     record = state.build_save_record() if isinstance(state, StockQuoteState) else state
                     if not record or not record.get('stock_id'):
                         continue
-                    if state.last_saved_timestamp == state.latest_timestamp:
+                    if state.last_saved_timestamp == state.latest_timestamp and phase == 'trading':
                         continue
                     if not state.has_trade_activity():
                         continue
@@ -2928,24 +3018,23 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     saved_count += 1
                     state.last_saved_timestamp = state.latest_timestamp
                 if saved_count > 0:
-                    print(f"[{dt.datetime.now()}] 已保存 {saved_count} 筆數據記錄")
+                    print(f"[{dt.datetime.now()}] 已保存 {saved_count} 筆數據記錄 (phase={phase})")
                 else:
-                    print(f"[{dt.datetime.now()}] 沒有數據可保存")
+                    print(f"[{dt.datetime.now()}] 沒有數據可保存 (phase={phase})")
                 print(f"[{dt.datetime.now()}] subscription event counts: {SUBSCRIPTION_STATE['event_counts']}")
                 last_save_time = current_time
-            
+
             # 每 1/60 秒顯示所有已訂閱股票的最新信息
             for state in SUBSCRIPTION_STATE['stocks'].values():
                 _display_quote_info(state)
-            
-            # 非阻塞式延遲
+
             await asyncio.sleep(update_interval)
-            
+
     except KeyboardInterrupt:
-        print("\\n訂閱監控已停止")
+        print("\n訂閱監控已停止")
     except Exception as e:
         print(f"show 方法出現錯誤: {e}")
-    
+
     return saved_records
 
 
@@ -3070,20 +3159,7 @@ def _display_quote_info(state):
                 buy_ratio = total_buy / (total_buy + total_sell) * 100
                 sell_ratio = total_sell / (total_buy + total_sell) * 100
                 print(f"買盤佔比: {buy_ratio:.2f}%, 賣盤佔比: {sell_ratio:.2f}%")
-            print(f"\\n===== {stock_id} 五檔報價 (索引: {byIndexFlag}) =====")
-            
-            # 顯示內外盤成交量分析
-            if buy_volumes and sell_volumes:
-                total_buy = sum(buy_volumes)
-                total_sell = sum(sell_volumes)
-                print(f"買盤累計量: {total_buy}, 賣盤累計量: {total_sell}")
-                
-                if total_buy + total_sell > 0:
-                    buy_ratio = total_buy / (total_buy + total_sell) * 100
-                    sell_ratio = total_sell / (total_buy + total_sell) * 100
-                    print(f"買盤佔比: {buy_ratio:.2f}%, 賣盤佔比: {sell_ratio:.2f}%")
-            
-            # 顯示五檔買賣
+            print(f"\n===== {stock_id} 五檔報價 (索引: {byIndexFlag}) =====")
             for i in range(min(5, len(buy_prices), len(buy_volumes), len(sell_prices), len(sell_volumes))):
                 print(f"買 {i+1}: {buy_prices[i]:>8} x {buy_volumes[i]:>6} | 賣 {i+1}: {sell_prices[i]:>8} x {sell_volumes[i]:>6}")
     

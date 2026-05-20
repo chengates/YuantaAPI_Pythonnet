@@ -1,5 +1,39 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
 
+## [2026-05-20]
+
+### Added
+- **Market Schedule Control**: `_market_phase()` 市場排程輔助函數
+  - `pre_open`: 09:00 前
+  - `trading`: 09:00-13:30 正常交易，每 5 秒保存 CSV
+  - `matching`: 13:30-14:30 盤後搓合，暫停 CSV 輸出
+  - `closed`: 14:30 後寫入日總結後停止
+- **Daily Summary CSV**: `_write_daily_summary()` 寫入 `@stockID.csv` 每日一筆 OHLCV
+  - 同步更新 `yesterday/{stockID}.csv` 供隔日 `_load_yesterday_data()` 載入
+- **Yesterday Volume Loader**: `StockQuoteState._load_yesterday_data()`
+  - 從 `yesterday/{stockID}.csv` 載入昨日成交量作為 `prev_average_volume`
+  - 修復 `pct_of_yesterday_avg` 欄位在 CSV 中缺失的 bug (CHANGELOG#142)
+
+### Changed
+- **show()** 重構: 整合市場排程邏輯，階段控制 CSV 寫入
+- **StockQuoteState.__init__()** 自動呼叫 `_load_yesterday_data()`
+
+### Fixed
+- `pct_of_yesterday_avg` CSV 欄位始終為空 → 現在從 yesterday/ 載入昨量計算
+- `_display_quote_info()` 內外盤分析程式碼重複 → 已合併
+
+### Added (Claude API Integration)
+- **claude_agent_setup.py**: 一次性建立 3 個 Managed Agent + Environment
+  - Yuanta-Analyst-Opus (`claude-opus-4-7`)
+  - Yuanta-Analyst-Sonnet (`claude-sonnet-4-6`)
+  - Yuanta-Analyst-Haiku (`claude-haiku-4-5`)
+- **claude_agent_runtime.py**: 4 種運行模式
+  - 互動式對話 / 排程分析 (`--cron`) / 任務執行 (`--task`) / 研究報告 (`--research`)
+- **README.md**: GitHub 專案首頁文件
+- **.gitignore**: Git 版控排除規則
+
+---
+
 ## [Unreleased]
 
 ### Added
