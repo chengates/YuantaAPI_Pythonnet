@@ -1,17 +1,31 @@
 """Test simulator — 模擬報價數據寫入 CSV 供 dashboard 驗證。
-Usage: python test_simulate.py [--stocks 2330,2317,2344] [--interval 5]
+Usage: python test_simulate.py [--stocks 2330,2317,2344] [--interval 5] [--once]
+  若未指定 --stocks，自動從 watchlist.json 讀取所有自選股。
 """
 import argparse
 import csv
+import json
 import math
 import os
 import random
 import time
 from datetime import datetime
 
-BASE_PRICES = {"2330": 950.0, "2317": 170.0, "2344": 35.0}
-STOCKS = ["2330", "2317", "2344"]
+BASE_PRICES = {"2330": 950.0, "2317": 170.0, "2344": 35.0, "2454": 800.0,
+               "2412": 120.0, "2881": 90.0, "2882": 70.0, "9907": 25.0}
 DEFAULT_INTERVAL = 5
+
+
+def _all_watchlist_stocks(path="watchlist.json"):
+    """從 watchlist.json 收集所有自選股中的股票代碼。"""
+    stocks = set()
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            wl = json.load(f)
+        for entry in wl.values():
+            for s in entry.get("stocks", []):
+                stocks.add(s)
+    return sorted(stocks) if stocks else ["2330", "2317", "2344"]
 
 
 def _ensure_headers(filename, fieldnames):
@@ -24,12 +38,13 @@ def _ensure_headers(filename, fieldnames):
 
 def simulate():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stocks", type=str, default="2330,2317,2344")
+    parser.add_argument("--stocks", type=str, default=None,
+                        help="Comma-separated stock IDs. Default: read all from watchlist.json")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL)
     parser.add_argument("--once", action="store_true", help="Write one record and exit")
     args = parser.parse_args()
 
-    stocks = [s.strip() for s in args.stocks.split(",")]
+    stocks = [s.strip() for s in args.stocks.split(",")] if args.stocks else _all_watchlist_stocks()
     fieldnames = [
         "timestamp", "stock_id", "deal_volume", "deal_amount", "open_price",
         "high_price", "low_price", "close_price", "price_diff", "trade_count",
