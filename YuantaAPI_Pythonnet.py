@@ -2487,8 +2487,10 @@ def cleanup_and_logout():
         return
 
     try:
+        if not SUBSCRIPTION_STATE.get('login_status', False):
+            print(f"[{dt.datetime.now()}] 未登入，跳過登出流程")
+            return
         print(f"[{dt.datetime.now()}] 執行登出清理...")
-        if SUBSCRIPTION_STATE.get('login_status', False):
             LogOut_api(objYuantaOneAPI)
             SUBSCRIPTION_STATE['login_status'] = False
         objYuantaOneAPI.Close()
@@ -2925,6 +2927,9 @@ open_api(objYuantaOneAPI)
 login_api(objYuantaOneAPI)
 #登入後需休息3秒，主機端會控制快速重複登入
 time.sleep(3)
+print(f"[{dt.datetime.now()}] 登入狀態: {SUBSCRIPTION_STATE.get('login_status', False)}")
+if not SUBSCRIPTION_STATE.get('login_status', False):
+    print(f"[{dt.datetime.now()}] ⚠ 登入失敗或未收到確認 — API 伺服器可能不在交易時段")
 
 #登出
 #LogOut_api(objYuantaOneAPI)
@@ -2941,8 +2946,10 @@ time.sleep(3)
 #取得己訂閱報價商品GetQuoteList
 #GetQuoteList_api(objYuantaOneAPI)
 
-#現貨下單
-send_stock_order(objYuantaOneAPI)
+#現貨下單 (已註解 — 避免非預期交易)
+#send_stock_order(objYuantaOneAPI)
+print(f"[{dt.datetime.now()}] send_stock_order 已略過 (手動取消註解以啟用)")
+time.sleep(0.5)
 
 #期貨下單
 #send_future_order(objYuantaOneAPI)
@@ -3284,16 +3291,22 @@ def _display_quote_info(state):
 register_exit_signal_handlers()
 print(f"[{dt.datetime.now()}] 即將呼叫 asyncio.run(show())")
 try:
-    saved_data = asyncio.run(show())  # 等待回應並顯示 UI，返回保存的數據記錄
-    print(f"[{dt.datetime.now()}] asyncio.run(show()) 已結束")
+    if SUBSCRIPTION_STATE.get('login_status', False):
+        saved_data = asyncio.run(show())
+        print(f"[{dt.datetime.now()}] asyncio.run(show()) 已結束")
+    else:
+        print(f"[{dt.datetime.now()}] 跳過 show(): 未登入。請確認 API 伺服器時段及帳號密碼。")
+        saved_data = []
 except KeyboardInterrupt:
     print(f"[{dt.datetime.now()}] 收到 Ctrl+C，已觸發登出流程")
     saved_data = []
 except Exception as e:
     print(f"[{dt.datetime.now()}] 執行 show() 時發生錯誤: {e}")
+    import traceback; traceback.print_exc()
     saved_data = []
 finally:
-    cleanup_and_logout()
+    if SUBSCRIPTION_STATE.get('login_status', False):
+        cleanup_and_logout()
 
 # 處理保存的數據（如果需要）
 if saved_data:
