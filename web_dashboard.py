@@ -94,8 +94,6 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 </div>
 <div class="summary-bar" id="summary"></div>
 <div class="grid" id="grid"></div>
-<button class="toggle-btn" id="recBtn" onclick="toggleRecords()">價量紀錄 ▸</button>
-<div class="pcr-panel" id="recPanel" style="display:none"><div id="recContent"></div></div>
 <button class="toggle-btn" onclick="document.getElementById('pcrPanel').style.display=document.getElementById('pcrPanel').style.display==='none'?'block':'none'">Put/Call 合理價計算 ▾</button>
 <div class="pcr-panel" id="pcrPanel" style="display:none">
 <h3>選擇權合理價評估</h3>
@@ -145,6 +143,15 @@ function cardHTML(s){
   const inRatio=s.total_in_volume+s.total_out_volume>0
     ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
   const dealAmt=s.deal_amount||0, dealVol=s.deal_volume||0;
+  let recs='';
+  if(s._records&&s._records.length){
+    recs='<table class="depth-table" style="margin-top:4px"><tr><th>時間</th><th>成交價</th><th>量(張)</th><th>內盤</th><th>外盤</th><th>金額</th></tr>';
+    for(const r of s._records){
+      recs+=`<tr><td>${r.time||'--'}</td><td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td><td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td><td>${(r.amt/1e8).toFixed(2)}億</td></tr>`;
+    }
+    recs+='</table>';
+  }
+  const uid='r'+s.stock_id;
   return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span></h2>
 <div class="price ${cls}">${fmt(s.close_price)} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
@@ -154,7 +161,9 @@ function cardHTML(s){
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
-<div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e8).toFixed(2)}億 / ${vol(dealVol)}張</span></div>`;
+<div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e8).toFixed(2)}億 / ${vol(dealVol)}張</span></div>
+<div class="toggle-btn" onclick="const t=document.getElementById('${uid}');t.style.display=t.style.display==='none'?'block':'none';this.textContent=t.style.display==='none'?'價量紀錄 ▸':'價量紀錄 ▾'" style="font-size:11px">價量紀錄 ▸</div>
+<div id="${uid}" style="display:none">${recs}</div>`;
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -196,27 +205,6 @@ statusEl.textContent='連線中...';
 (async function init(){
   try{const r=await fetch('/api/stocks');const d=await r.json();render(d);summary(d);}catch(e){}
 })();
-async function toggleRecords(){
-  const p=document.getElementById('recPanel');
-  if(p.style.display==='none'){
-    p.style.display='block';
-    document.getElementById('recBtn').textContent='價量紀錄 ▾';
-    const r=await fetch('/api/records');const d=await r.json();
-    let h='<table class="depth-table"><tr><th>股票</th><th>時間</th><th>成交價</th><th>成交量(張)</th><th>內盤(張)</th><th>外盤(張)</th><th>成交金額</th></tr>';
-    for(const[id,rows] of Object.entries(d)){
-      for(let i=0;i<rows.length;i++){
-        const r=rows[i];
-        h+=`<tr><td>${i===0?id:''}</td><td>${r.time||'--'}</td>
-<td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td>
-<td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td>
-<td>${(r.amt/1e8).toFixed(2)}億</td></tr>`;
-      }
-    }
-    h+='</table>';document.getElementById('recContent').innerHTML=h;
-  }else{
-    p.style.display='none';document.getElementById('recBtn').textContent='價量紀錄 ▸';
-  }
-}
 const es=new EventSource('/stream');
 es.onopen=function(){statusEl.textContent='SSE 已連線'};
 es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
@@ -303,10 +291,27 @@ def poll_worker():
             except OSError:
                 pass
             rec = read_latest_csv(sid)
-            data[sid] = rec if rec else _empty_card(sid)
+            d = rec if rec else _empty_card(sid)
+            d["_records"] = _recent_rows_api(sid)
+            data[sid] = d
         if data:
             sse_queue.put(data)
         time.sleep(DATA_INTERVAL)
+
+
+def _recent_rows_api(stock_id: str, n: int = 5) -> list:
+    rows = read_recent_rows(stock_id, n)
+    records = []
+    for r in rows:
+        records.append({
+            "time": r.get("timestamp", "")[-8:],
+            "price": _num(r, "close_price"),
+            "vol": _num(r, "deal_volume", int) or 0,
+            "in_vol": _num(r, "total_in_volume", int) or 0,
+            "out_vol": _num(r, "total_out_volume", int) or 0,
+            "amt": _num(r, "deal_amount") or 0,
+        })
+    return records
 
 
 def read_recent_rows(stock_id: str, n: int = 5) -> list:
