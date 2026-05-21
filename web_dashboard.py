@@ -91,6 +91,8 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 </div>
 <div class="summary-bar" id="summary"></div>
 <div class="grid" id="grid"></div>
+<button class="toggle-btn" onclick="const p=document.getElementById('depthPanel');p.style.display=p.style.display==='none'?'block':'none'">五檔明細 ▸</button>
+<div class="pcr-panel" id="depthPanel" style="display:none"><div id="depthContent"></div></div>
 <button class="toggle-btn" onclick="document.getElementById('pcrPanel').style.display=document.getElementById('pcrPanel').style.display==='none'?'block':'none'">Put/Call 合理價計算 ▾</button>
 <div class="pcr-panel" id="pcrPanel" style="display:none">
 <h3>選擇權合理價評估</h3>
@@ -132,11 +134,10 @@ function tag(label){
   const [text,cls]=map[label]||[label,'tag-churn'];
   return `<span class="tag ${cls}">${text}</span>`;
 }
-const cards={}, lastVal={};
-function setText(el,val){if(el.textContent!==val)el.textContent=val;}
-function setHtml(el,val){if(el.innerHTML!==val)el.innerHTML=val;}
+const cards={};
+function setText(el,val){if(!el)return;const v=String(val);if(el.textContent!==v)el.textContent=v;}
 function buildCard(el,s){
-  if(!el._built){
+  if(!el._$){
     el.innerHTML=`<h2><span class="c-name"></span> <span class="c-id"></span> <span class="c-type"></span></h2>
 <div class="price"><span class="c-price"></span> <span class="c-pct" style="font-size:13px"></span></div>
 <div class="row"><span>開 <span class="c-o"></span></span><span>高 <span class="c-h"></span></span><span>低 <span class="c-l"></span></span></div>
@@ -146,54 +147,33 @@ function buildCard(el,s){
 <div class="row"><span>MA5 <span class="c-m5"></span></span><span class="muted">MA10 <span class="c-m10"></span></span><span class="c-tag"></span></div>
 <div class="bar"><div class="bar-fill c-bar"></div></div>
 <div class="row"><span class="muted">買盤佔比 <span class="c-bp"></span>%</span><span class="muted">Score: <span class="c-score"></span></span></div>
-<div class="stat-row"><span class="c-time"></span><span class="c-total"></span></div>
-<button class="toggle-btn c-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">五檔明細 ▸</button>
-<div class="c-depth" style="display:none"><table class="depth-table">
-<tr><th></th><th>買價</th><th>買量(張)</th><th>賣價</th><th>賣量(張)</th></tr>
-<tr><td>1</td><td class="bid c-bp1"></td><td class="bid c-bv1"></td><td class="ask c-sp1"></td><td class="ask c-sv1"></td></tr>
-<tr><td>2</td><td class="bid c-bp2"></td><td class="bid c-bv2"></td><td class="ask c-sp2"></td><td class="ask c-sv2"></td></tr>
-<tr><td>3</td><td class="bid c-bp3"></td><td class="bid c-bv3"></td><td class="ask c-sp3"></td><td class="ask c-sv3"></td></tr>
-<tr><td>4</td><td class="bid c-bp4"></td><td class="bid c-bv4"></td><td class="ask c-sp4"></td><td class="ask c-sv4"></td></tr>
-<tr><td>5</td><td class="bid c-bp5"></td><td class="bid c-bv5"></td><td class="ask c-sp5"></td><td class="ask c-sv5"></td></tr>
-</table></div>`;
-    el._built=true;
+<div class="stat-row"><span class="c-time"></span><span class="c-total"></span></div>`;
+    el._$={};for(const c of el.querySelectorAll('[class^=c-]')){const k=c.className.replace('c-','');el._$[k]=c;}
   }
+  const $=el._$;
   if(s.close_price==null){el.style.opacity='0.5';return;}
   el.style.opacity='1';
   const cls=s.close_price>=s.open_price?'up':'down';
   const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
   const inRatio=s.total_in_volume+s.total_out_volume>0
     ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
-  setText(el.querySelector('.c-name'),s.stock_name||s.stock_id);
-  setText(el.querySelector('.c-id'),s.stock_id);
-  setHtml(el.querySelector('.c-type'),badge(s.stock_type));
-  const priceEl=el.querySelector('.c-price');priceEl.className='c-price '+cls;setText(priceEl,fmt(s.close_price));
-  setText(el.querySelector('.c-pct'),(pct>0?'+'+pct:pct)+'%');
-  setText(el.querySelector('.c-o'),fmt(s.open_price));
-  setText(el.querySelector('.c-h'),fmt(s.high_price));
-  setText(el.querySelector('.c-l'),fmt(s.low_price));
-  setText(el.querySelector('.c-v'),vol(s.deal_volume));
-  setText(el.querySelector('.c-tc'),(s.trade_count||0).toLocaleString());
-  setText(el.querySelector('.c-iv'),vol(s.total_in_volume));
-  setText(el.querySelector('.c-ov'),vol(s.total_out_volume));
-  setText(el.querySelector('.c-ev'),vol(s.estimated_day_volume));
-  setText(el.querySelector('.c-pya'),s.pct_of_yesterday_avg||'--');
-  setText(el.querySelector('.c-m5'),fmt(s.ma5));
-  setText(el.querySelector('.c-m10'),fmt(s.ma10));
-  setHtml(el.querySelector('.c-tag'),tag(s.participation_label||'N/A'));
-  const bar=el.querySelector('.c-bar');bar.style.width=Math.min(100,Math.max(0,inRatio))+'%';bar.style.background=inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681';
-  setText(el.querySelector('.c-bp'),inRatio);
-  setText(el.querySelector('.c-score'),s.participation_score||'--');
-  setText(el.querySelector('.c-time'),(s.timestamp||'').slice(-8));
+  setText($.name,s.stock_name||s.stock_id);
+  setText($.id,s.stock_id);
+  $.type.innerHTML=badge(s.stock_type);
+  $.price.className='c-price '+cls;setText($.price,fmt(s.close_price));
+  setText($.pct,(pct>0?'+'+pct:pct)+'%');
+  setText($.o,fmt(s.open_price));setText($.h,fmt(s.high_price));setText($.l,fmt(s.low_price));
+  setText($.v,vol(s.deal_volume));setText($.tc,(s.trade_count||0).toLocaleString());
+  setText($.iv,vol(s.total_in_volume));setText($.ov,vol(s.total_out_volume));
+  setText($.ev,vol(s.estimated_day_volume));setText($.pya,s.pct_of_yesterday_avg||'--');
+  setText($.m5,fmt(s.ma5));setText($.m10,fmt(s.ma10));
+  $.tag.innerHTML=tag(s.participation_label||'N/A');
+  $.bar.style.width=Math.min(100,Math.max(0,inRatio))+'%';
+  $.bar.style.background=inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681';
+  setText($.bp,inRatio);setText($.score,s.participation_score||'--');
+  setText($.time,(s.timestamp||'').slice(-8));
   const dealAmt=s.deal_amount||0, dealVol=s.deal_volume||0;
-  setText(el.querySelector('.c-total'),'成交總額 '+(dealAmt/1e8).toFixed(2)+'億 / '+vol(dealVol)+'張');
-  const bp=s.buy_prices||[], bv=s.buy_volumes||[], sp=s.sell_prices||[], sv=s.sell_volumes||[];
-  for(let i=0;i<5;i++){
-    setText(el.querySelector('.c-bp'+(i+1)),bp[i]?fmt(bp[i]):'--');
-    setText(el.querySelector('.c-bv'+(i+1)),bv[i]?Math.round(bv[i]/1000).toLocaleString():'--');
-    setText(el.querySelector('.c-sp'+(i+1)),sp[i]?fmt(sp[i]):'--');
-    setText(el.querySelector('.c-sv'+(i+1)),sv[i]?Math.round(sv[i]/1000).toLocaleString():'--');
-  }
+  setText($.total,'成交總額 '+(dealAmt/1e8).toFixed(2)+'億 / '+vol(dealVol)+'張');
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -235,7 +215,26 @@ statusEl.textContent='連線中...';
 const es=new EventSource('/stream');
 es.onopen=function(){statusEl.textContent='SSE 已連線'};
 es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
-es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
+function updateDepth(data){
+  const p=document.getElementById('depthPanel');
+  if(p.style.display==='none') return;
+  let h='<table class="depth-table"><tr><th>股票</th><th></th><th>買價</th><th>買量(張)</th><th>賣價</th><th>賣量(張)</th><th>內盤%</th><th>成交總額</th></tr>';
+  for(const[id,s] of Object.entries(data)){
+    const bp=s.buy_prices||[],bv=s.buy_volumes||[],sp=s.sell_prices||[],sv=s.sell_volumes||[];
+    const inPct=s.total_in_volume+s.total_out_volume>0?Math.round(s.total_in_volume/(s.total_in_volume+s.total_out_volume)*100):50;
+    const dealAmt=(s.deal_amount||0)/1e8;
+    for(let i=0;i<5;i++){
+      h+=`<tr><td>${i===0?s.stock_name||s.stock_id:''}</td><td>${i+1}</td>
+<td class="bid">${bp[i]?fmt(bp[i]):'--'}</td><td class="bid">${bv[i]?Math.round(bv[i]/1000).toLocaleString():'--'}</td>
+<td class="ask">${sp[i]?fmt(sp[i]):'--'}</td><td class="ask">${sv[i]?Math.round(sv[i]/1000).toLocaleString():'--'}</td>
+<td>${i===0?inPct+'%':''}</td><td>${i===0?dealAmt.toFixed(2)+'億':''}</td></tr>`;
+    }
+  }
+  h+='</table>';
+  const dc=document.getElementById('depthContent');
+  if(dc._last!==h){dc.innerHTML=h;dc._last=h;}
+}
+es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);updateDepth(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
 </script>
 </body>
 </html>"""
