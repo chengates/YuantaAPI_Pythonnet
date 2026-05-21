@@ -178,7 +178,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
     if not os.path.exists(path):
         return None
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             rows = list(csv.DictReader(f))
         if not rows:
             return None
