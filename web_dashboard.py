@@ -102,7 +102,6 @@ async function switchWatchlist(name){
   location.reload();
 }
 loadWatchlists();
-const cards={};
 function fmt(n,d=2){return n!=null?Number(n).toFixed(d):'--'}
 function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
 function badge(type){
@@ -118,19 +117,14 @@ function tag(label){
   const [text,cls]=map[label]||[label,'tag-churn'];
   return `<span class="tag ${cls}">${text}</span>`;
 }
-function render(data){
-  const g=document.getElementById('grid');g.innerHTML='';
-  for(const [id,s] of Object.entries(data)){
-    if(s.close_price==null){
-      g.innerHTML+=`<div class="card"><h2>${id}</h2><div class="row muted">等待資料...</div></div>`;
-      continue;
-    }
-    const cls=s.close_price>=s.open_price?'up':'down';
-    const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
-    const inRatio=s.total_in_volume+s.total_out_volume>0
-      ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
-    g.innerHTML+=`<div class="card">
-<h2>${s.stock_id} <span>${badge(s.stock_type)}</span></h2>
+const cards={};
+function cardHTML(s){
+  if(s.close_price==null) return `<h2>${s.stock_id}</h2><div class="row muted">等待資料...</div>`;
+  const cls=s.close_price>=s.open_price?'up':'down';
+  const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
+  const inRatio=s.total_in_volume+s.total_out_volume>0
+    ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
+  return `<h2>${s.stock_id} <span>${badge(s.stock_type)}</span></h2>
 <div class="price ${cls}">${fmt(s.close_price)} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
 <div class="row"><span>量 ${vol(s.deal_volume)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
@@ -138,8 +132,15 @@ function render(data){
 <div class="row"><span>估日量 ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
-<div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
-</div>`;
+<div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>`;
+}
+function render(data){
+  const g=document.getElementById('grid'), active=new Set(Object.keys(data));
+  for(const id of Object.keys(cards)){if(!active.has(id)){cards[id].remove();delete cards[id];}}
+  for(const [id,s] of Object.entries(data)){
+    let el=cards[id];
+    if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
+    el.innerHTML=cardHTML(s);
   }
   document.getElementById('status').textContent='更新 '+new Date().toLocaleTimeString();
 }
