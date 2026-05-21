@@ -2491,8 +2491,8 @@ def cleanup_and_logout():
             print(f"[{dt.datetime.now()}] 未登入，跳過登出流程")
             return
         print(f"[{dt.datetime.now()}] 執行登出清理...")
-            LogOut_api(objYuantaOneAPI)
-            SUBSCRIPTION_STATE['login_status'] = False
+        LogOut_api(objYuantaOneAPI)
+        SUBSCRIPTION_STATE['login_status'] = False
         objYuantaOneAPI.Close()
         objYuantaOneAPI.Dispose()
         print(f"[{dt.datetime.now()}] 已完成登出及關閉 YuantaOneAPI")
