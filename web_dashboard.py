@@ -121,6 +121,10 @@ function tag(label){
 function render(data){
   const g=document.getElementById('grid');g.innerHTML='';
   for(const [id,s] of Object.entries(data)){
+    if(s.close_price==null){
+      g.innerHTML+=`<div class="card"><h2>${id}</h2><div class="row muted">等待資料...</div></div>`;
+      continue;
+    }
     const cls=s.close_price>=s.open_price?'up':'down';
     const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
     const inRatio=s.total_in_volume+s.total_out_volume>0
@@ -223,14 +227,23 @@ def poll_worker():
                 mt = os.path.getmtime(path) if os.path.exists(path) else 0
                 if mt != last_mtimes.get(sid, 0):
                     last_mtimes[sid] = mt
-                    rec = read_latest_csv(sid)
-                    if rec:
-                        data[sid] = rec
             except OSError:
                 pass
+            rec = read_latest_csv(sid)
+            data[sid] = rec if rec else _empty_card(sid)
         if data:
             sse_queue.put(data)
         time.sleep(DATA_INTERVAL)
+
+
+def _empty_card(stock_id: str) -> dict:
+    return {"stock_id": stock_id, "close_price": None, "open_price": None,
+            "high_price": None, "low_price": None, "price_diff": None,
+            "deal_volume": 0, "trade_count": 0, "total_in_volume": 0,
+            "total_out_volume": 0, "estimated_day_volume": 0,
+            "pct_of_yesterday_avg": None, "ma5": None, "ma10": None,
+            "stock_type": "unknown", "participation_score": None,
+            "participation_label": "等待資料"}
 
 
 @app.route("/")
@@ -256,8 +269,7 @@ def api_stocks():
     result = {}
     for sid in get_active_stocks():
         rec = read_latest_csv(sid)
-        if rec:
-            result[sid] = rec
+        result[sid] = rec if rec else _empty_card(sid)
     return jsonify(result)
 
 
