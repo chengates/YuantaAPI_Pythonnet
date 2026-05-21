@@ -91,8 +91,6 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 </div>
 <div class="summary-bar" id="summary"></div>
 <div class="grid" id="grid"></div>
-<button class="toggle-btn" id="recBtn" onclick="toggleRecords()">價量紀錄 ▸</button>
-<div class="pcr-panel" id="recPanel" style="display:none"><div id="recContent"></div></div>
 <button class="toggle-btn" onclick="document.getElementById('pcrPanel').style.display=document.getElementById('pcrPanel').style.display==='none'?'block':'none'">Put/Call 合理價計算 ▾</button>
 <div class="pcr-panel" id="pcrPanel" style="display:none">
 <h3>選擇權合理價評估</h3>
@@ -215,30 +213,6 @@ statusEl.textContent='連線中...';
 const es=new EventSource('/stream');
 es.onopen=function(){statusEl.textContent='SSE 已連線'};
 es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
-async function toggleRecords(){
-  const p=document.getElementById('recPanel');
-  if(p.style.display==='none'){
-    p.style.display='block';
-    document.getElementById('recBtn').textContent='價量紀錄 ▾';
-    const r=await fetch('/api/records');const data=await r.json();
-    let h='<table class="depth-table"><tr><th>股票</th><th>時間</th><th>成交價</th><th>成交量(張)</th><th>內盤(張)</th><th>外盤(張)</th><th>成交金額</th></tr>';
-    for(const[id,rows] of Object.entries(data)){
-      const name=document.querySelector('.c-name')?.textContent||id;
-      for(let i=0;i<rows.length;i++){
-        const r=rows[i];
-        h+=`<tr><td>${i===0?name+' '+id:''}</td><td>${r.time||'--'}</td>
-<td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td>
-<td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td>
-<td>${(r.amt/1e8).toFixed(2)}億</td></tr>`;
-      }
-    }
-    h+='</table>';
-    document.getElementById('recContent').innerHTML=h;
-  }else{
-    p.style.display='none';
-    document.getElementById('recBtn').textContent='價量紀錄 ▸';
-  }
-}
 es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
 </script>
 </body>
@@ -328,19 +302,6 @@ def poll_worker():
         time.sleep(DATA_INTERVAL)
 
 
-def read_recent_rows(stock_id: str, n: int = 5) -> list:
-    """讀取最後 N 筆 CSV 記錄（價量紀錄用）。"""
-    path = f"{stock_id}.csv"
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            rows = list(csv.DictReader(f))
-        return rows[-n:]
-    except Exception:
-        return []
-
-
 def _empty_card(stock_id: str) -> dict:
     return {"stock_id": stock_id, "stock_name": get_stock_name(stock_id),
             "close_price": None, "open_price": None, "timestamp": "",
@@ -378,26 +339,6 @@ def api_stocks():
     for sid in get_active_stocks():
         rec = read_latest_csv(sid)
         result[sid] = rec if rec else _empty_card(sid)
-    return jsonify(result)
-
-
-@app.route("/api/records")
-def api_records():
-    """每檔股票最近 5 筆價量紀錄。"""
-    result = {}
-    for sid in get_active_stocks():
-        rows = read_recent_rows(sid, 5)
-        records = []
-        for r in rows:
-            records.append({
-                "time": r.get("timestamp", "")[-8:],
-                "price": _num(r, "close_price"),
-                "vol": _num(r, "deal_volume", int) or 0,
-                "in_vol": _num(r, "total_in_volume", int) or 0,
-                "out_vol": _num(r, "total_out_volume", int) or 0,
-                "amt": _num(r, "deal_amount") or 0,
-            })
-        result[sid] = records
     return jsonify(result)
 
 
