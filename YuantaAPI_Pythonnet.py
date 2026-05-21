@@ -200,9 +200,22 @@ class StockQuoteState:
         self._update_technical_indicators()
         self._classify_participation()
 
+    # 台灣50成分股 (0050)，必定為大型股
+    _TW50 = frozenset({
+        '2330', '2317', '2454', '2412', '2881', '2882', '2886', '2891',
+        '2308', '2303', '2327', '2344', '2345', '2357', '2379', '2382',
+        '2395', '2408', '3008', '3034', '3045', '3711', '4904', '4938',
+        '5871', '5876', '5880', '6505', '1301', '1303', '1326', '2002',
+        '2207', '2603', '2609', '2610', '2615', '2633', '2801', '2880',
+        '2883', '2884', '2885', '2887', '2888', '2890', '2892', '2912',
+        '3443', '3533', '3661', '5269', '6415', '8046', '8299', '8454',
+    })
+
     @staticmethod
     def detect_stock_type(stock_id: str, price=None, avg_volume=None) -> str:
         """依股號及價量特性分類: large_cap / mid_cap / small_cap / speculative。"""
+        if stock_id in StockQuoteState._TW50:
+            return 'large_cap'
         if price and avg_volume:
             daily_value = price * avg_volume
             if daily_value > 500_000_000:
@@ -212,8 +225,6 @@ class StockQuoteState:
             if daily_value > 5_000_000:
                 return 'small_cap'
             return 'speculative'
-        if stock_id in ('2330', '2317', '2454', '2412', '2881', '2882', '1301', '1303', '2002'):
-            return 'large_cap'
         if len(stock_id) == 4 and stock_id[0] in ('2', '3', '4', '5', '6', '8', '9'):
             return 'mid_cap'
         return 'small_cap'
