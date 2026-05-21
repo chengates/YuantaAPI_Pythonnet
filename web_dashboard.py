@@ -213,6 +213,9 @@ PCR 訊號: ${d.pcr.signal} (vol:${d.pcr.vol_ratio||'--'})`;
 }
 const statusEl=document.getElementById('status');
 statusEl.textContent='連線中...';
+(async function init(){
+  try{const r=await fetch('/api/stocks');const d=await r.json();render(d);summary(d);}catch(e){}
+})();
 const es=new EventSource('/stream');
 es.onopen=function(){statusEl.textContent='SSE 已連線'};
 es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
