@@ -20,7 +20,9 @@ def main():
         target=_run_sim, args=(args,), daemon=True)
     sim_thread.start()
 
-    # Start dashboard in main thread (Flask blocks)
+    # Start dashboard poll worker + Flask in main thread
+    poll_thread = threading.Thread(target=web_dashboard.poll_worker, daemon=True)
+    poll_thread.start()
     print(f"Dashboard → http://localhost:{args.port}")
     web_dashboard.app.run(host="0.0.0.0", port=args.port,
                           debug=False, threaded=True)

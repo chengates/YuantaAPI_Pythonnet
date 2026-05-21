@@ -167,7 +167,6 @@ function render(data){
     if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
     buildCard(el,s);
   }
-  setText(document.getElementById('status'),'更新 '+new Date().toLocaleTimeString());
 }
 function summary(data){
   let totalVol=0,totalIn=0,totalOut=0,up=0,down=0;const entries=Object.entries(data);
@@ -192,8 +191,12 @@ Call IV: ${(d.call_iv*100).toFixed(1)}% | Put IV: ${(d.put_iv*100).toFixed(1)}%<
 Parity偏差: ${d.parity_diff>0?'Call偏貴':'Put偏貴'} ${Math.abs(d.parity_diff).toFixed(1)}<br>
 PCR 訊號: ${d.pcr.signal} (vol:${d.pcr.vol_ratio||'--'})`;
 }
+const statusEl=document.getElementById('status');
+statusEl.textContent='連接中...';
 const es=new EventSource('/stream');
-es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d)};
+es.onopen=function(){statusEl.textContent='SSE 已連接'};
+es.onerror=function(){statusEl.textContent='SSE 斷線，重新連接中...'};
+es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
 </script>
 </body>
 </html>"""
