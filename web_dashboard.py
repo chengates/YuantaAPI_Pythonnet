@@ -52,7 +52,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .wl-select{padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:13px}
 .wl-select:focus{outline:none;border-color:#58a6ff}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
 .card h2{font-size:16px;display:flex;justify-content:space-between}
 .card .type{font-size:10px;padding:1px 6px;border-radius:10px;color:#fff}
@@ -221,7 +221,7 @@ async function toggleRecords(){
     p.style.display='block';
     document.getElementById('recBtn').textContent='價量紀錄 ▾';
     const r=await fetch('/api/records');const data=await r.json();
-    let h='<table class="depth-table"><tr><th>股票</th><th>時間</th><th>成交價</th><th>成交量(張)</th><th>內盤(張)</th><th>外盤(張)</th><th>成交總額</th></tr>';
+    let h='<table class="depth-table"><tr><th>股票</th><th>時間</th><th>成交價</th><th>成交量(張)</th><th>內盤(張)</th><th>外盤(張)</th><th>成交金額</th></tr>';
     for(const[id,rows] of Object.entries(data)){
       const name=document.querySelector('.c-name')?.textContent||id;
       for(let i=0;i<rows.length;i++){
