@@ -28,6 +28,55 @@ def _all_watchlist_stocks(path="watchlist.json"):
     return sorted(stocks) if stocks else ["2330", "2317", "2344"]
 
 
+def _write_daily_summary(stock_id: str):
+    """寫入每日總結 CSV (@stockID.csv)，模擬版本。"""
+    filename = f"@{stock_id}.csv"
+    now = datetime.now()
+    # 從5秒CSV取最後一筆
+    csv5 = f"{stock_id}.csv"
+    row = {"open_price": None, "high_price": None, "low_price": None,
+           "close_price": None, "deal_volume": 0, "trade_count": 0,
+           "total_in_volume": 0, "total_out_volume": 0, "estimated_day_volume": 0}
+    if os.path.exists(csv5):
+        with open(csv5, encoding="utf-8", errors="replace") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                try:
+                    row["open_price"] = float(r.get("open_price", 0) or 0)
+                    row["high_price"] = float(r.get("high_price", 0) or 0)
+                    row["low_price"] = float(r.get("low_price", 0) or 0)
+                    row["close_price"] = float(r.get("close_price", 0) or 0)
+                    row["deal_volume"] = int(float(r.get("deal_volume", 0) or 0))
+                    row["trade_count"] = int(float(r.get("trade_count", 0) or 0))
+                    row["total_in_volume"] = int(float(r.get("total_in_volume", 0) or 0))
+                    row["total_out_volume"] = int(float(r.get("total_out_volume", 0) or 0))
+                    row["estimated_day_volume"] = int(float(r.get("estimated_day_volume", 0) or 0))
+                except (ValueError, TypeError):
+                    pass
+    file_exists = os.path.exists(filename)
+    with open(filename, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "date", "stock_id", "open_price", "high_price", "low_price",
+            "close_price", "total_volume", "total_in_volume", "total_out_volume",
+            "estimated_day_volume", "trade_count"])
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            "date": now.strftime("%Y%m%d"),
+            "stock_id": stock_id,
+            "open_price": row["open_price"],
+            "high_price": row["high_price"],
+            "low_price": row["low_price"],
+            "close_price": row["close_price"],
+            "total_volume": row["deal_volume"],
+            "total_in_volume": row["total_in_volume"],
+            "total_out_volume": row["total_out_volume"],
+            "estimated_day_volume": row["estimated_day_volume"],
+            "trade_count": row["trade_count"],
+        })
+    print(f"[{now.strftime('%H:%M:%S')}] @{stock_id}.csv 日總結已寫入")
+
+
 def _ensure_headers(filename, fieldnames):
     if os.path.exists(filename):
         return
@@ -58,12 +107,31 @@ def simulate():
 
     prices = {s: BASE_PRICES.get(s, 100.0) for s in stocks}
     iter_count = 0
+    daily_written = set()
+
+    def market_phase():
+        t = datetime.now().hour * 60 + datetime.now().minute
+        if t < 9 * 60: return 'pre_open'
+        if t < 13 * 60 + 30: return 'trading'
+        if t < 14 * 60 + 30: return 'matching'
+        return 'closed'
 
     print(f"模擬寫入啟動: {stocks} / 每 {args.interval}s / Ctrl+C 停止")
     print(f"Dashboard: http://localhost:5000")
 
     while True:
+        phase = market_phase()
+        if phase == 'closed':
+            for sid in stocks:
+                if sid not in daily_written:
+                    _write_daily_summary(sid)
+                    daily_written.add(sid)
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 收盤 — 模擬結束")
+            break
+
         for stock_id in stocks:
+            if phase == 'matching':
+                continue  # 盤後搓合暫停寫入
             filename = f"{stock_id}.csv"
             _ensure_headers(filename, fieldnames)
 
