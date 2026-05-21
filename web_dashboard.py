@@ -65,7 +65,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .tag-sell{background:#da3633;color:#fff}.tag-strong-sell{background:#9e6a03;color:#fff}
 .tag-churn{background:#6e7681;color:#fff}
 .bar{height:4px;border-radius:2px;margin-top:4px;background:#21262d}
-.bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.bar-fill{height:100%;border-radius:2px;transition:none}
 .last-update{font-size:10px;color:#484f58;margin-top:6px}
 .summary-bar{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px}
 .summary-item{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 14px}
