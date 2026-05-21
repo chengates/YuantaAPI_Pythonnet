@@ -186,10 +186,13 @@ function summary(data){
     if(s.close_price>=s.open_price) up++; else down++;
   }
   const inPct=totalIn+totalOut>0?Math.round(totalIn/(totalIn+totalOut)*100):50;
-  document.getElementById('summary').innerHTML=`
-<div class="summary-item">📊 監控 ${entries.length} 檔 <span class="num">${up}↑ ${down}↓</span></div>
-<div class="summary-item">總量 <span class="num">${Math.round(totalVol/1000).toLocaleString()} 張</span></div>
-<div class="summary-item">內盤佔比 <span class="num" style="color:${inPct>55?'#3fb950':inPct<45?'#f85149':'#c9d1d9'}">${inPct}%</span></div>`;
+  const bar=document.getElementById('summary');
+  if(!bar._built){bar.innerHTML='<div class="summary-item"><span class="s-cnt"></span> <span class="s-updn"></span></div><div class="summary-item">總量 <span class="num s-tvol"></span></div><div class="summary-item">內盤佔比 <span class="num s-inpct"></span></div>';bar._built=true;}
+  setText(bar.querySelector('.s-cnt'),'監控 '+entries.length+' 檔');
+  setText(bar.querySelector('.s-updn'),up+'↑ '+down+'↓');
+  setText(bar.querySelector('.s-tvol'),Math.round(totalVol/1000).toLocaleString()+' 張');
+  const pctEl=bar.querySelector('.s-inpct');setText(pctEl,inPct+'%');
+  pctEl.style.color=inPct>55?'#3fb950':inPct<45?'#f85149':'#c9d1d9';
 }
 async function calcPCR(){
   const p=id=>document.getElementById(id).value;
@@ -203,10 +206,10 @@ Parity偏差: ${d.parity_diff>0?'Call偏貴':'Put偏貴'} ${Math.abs(d.parity_di
 PCR 訊號: ${d.pcr.signal} (vol:${d.pcr.vol_ratio||'--'})`;
 }
 const statusEl=document.getElementById('status');
-statusEl.textContent='連接中...';
+statusEl.textContent='連線中...';
 const es=new EventSource('/stream');
-es.onopen=function(){statusEl.textContent='SSE 已連接'};
-es.onerror=function(){statusEl.textContent='SSE 斷線，重新連接中...'};
+es.onopen=function(){statusEl.textContent='SSE 已連線'};
+es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
 es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
 </script>
 </body>
