@@ -93,6 +93,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 <select class="wl-select" id="wlSelect" onchange="switchWatchlist(this.value)"></select>
 </div>
 <div class="summary-bar" id="summary"></div>
+<button class="toggle-btn" id="recBtn" onclick="toggleAllRecords()">▸ 全部價量紀錄</button>
 <div class="grid" id="grid"></div>
 <button class="toggle-btn" onclick="document.getElementById('pcrPanel').style.display=document.getElementById('pcrPanel').style.display==='none'?'block':'none'">Put/Call 合理價計算 ▾</button>
 <div class="pcr-panel" id="pcrPanel" style="display:none">
@@ -160,9 +161,9 @@ function cardHTML(s){
 <div class="row"><span>估日量 ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
-<div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span><span style="font-size:10px"><a class="toggle-btn" onclick="const t=document.getElementById('${uid}');t.style.display=t.style.display==='none'?'block':'none';this.textContent=t.style.display==='none'?'▸ 價量':'▾ 價量'" style="font-size:10px">▸ 價量</a></span></div>
+<div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
 <div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e8).toFixed(2)}億 / ${vol(dealVol)}張</span></div>
-<div id="${uid}" style="display:none">${recs}</div>`;
+<div class="c-recs" style="display:none">${recs}</div>`;
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -204,6 +205,14 @@ statusEl.textContent='連線中...';
 (async function init(){
   try{const r=await fetch('/api/stocks');const d=await r.json();render(d);summary(d);}catch(e){}
 })();
+let _recsOpen=false;
+function toggleAllRecords(){
+  _recsOpen=!_recsOpen;
+  document.getElementById('recBtn').textContent=_recsOpen?'▾ 全部價量紀錄':'▸ 全部價量紀錄';
+  for(const[id,el] of Object.entries(cards)){
+    const r=el.querySelector('.c-recs');if(r)r.style.display=_recsOpen?'block':'none';
+  }
+}
 const es=new EventSource('/stream');
 es.onopen=function(){statusEl.textContent='SSE 已連線'};
 es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
