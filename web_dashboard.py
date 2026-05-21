@@ -52,7 +52,10 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .wl-select{padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:13px}
 .wl-select:focus{outline:none;border-color:#58a6ff}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:1200px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
 .card h2{font-size:16px;display:flex;justify-content:space-between}
 .card .type{font-size:10px;padding:1px 6px;border-radius:10px;color:#fff}
@@ -117,7 +120,7 @@ async function switchWatchlist(name){
   location.reload();
 }
 loadWatchlists();
-function fmt(n,d=2){return n!=null?Number(n).toFixed(d):'--'}
+function fmt(n,d=2){if(n==null)return'--';n=Number(n);if(Math.abs(n)>1e5)n/=1e4;return n.toFixed(d);}
 function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
 function badge(type){
   const m={large_cap:['大型','type-large'],mid_cap:['中型','type-mid'],
