@@ -15,7 +15,17 @@ app = Flask(__name__)
 sse_queue = queue.Queue()
 
 WATCHLIST_PATH = "watchlist.json"
+NAMES_PATH = "stock_names.json"
 _active_watchlist = "自選股1"
+
+def load_names():
+    if os.path.exists(NAMES_PATH):
+        with open(NAMES_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def get_stock_name(stock_id: str) -> str:
+    return load_names().get(stock_id, stock_id)
 
 def load_watchlists():
     if os.path.exists(WATCHLIST_PATH):
@@ -122,7 +132,7 @@ function setText(el,val){if(el.textContent!==val)el.textContent=val;}
 function setHtml(el,val){if(el.innerHTML!==val)el.innerHTML=val;}
 function buildCard(el,s){
   if(!el._built){
-    el.innerHTML=`<h2><span class="c-id"></span> <span class="c-type"></span></h2>
+    el.innerHTML=`<h2><span class="c-name"></span> <span class="c-id"></span> <span class="c-type"></span></h2>
 <div class="price"><span class="c-price"></span> <span class="c-pct" style="font-size:13px"></span></div>
 <div class="row"><span>開 <span class="c-o"></span></span><span>高 <span class="c-h"></span></span><span>低 <span class="c-l"></span></span></div>
 <div class="row"><span>量 <span class="c-v"></span> 張</span><span>成交筆數 <span class="c-tc"></span></span></div>
@@ -139,6 +149,7 @@ function buildCard(el,s){
   const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
   const inRatio=s.total_in_volume+s.total_out_volume>0
     ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
+  setText(el.querySelector('.c-name'),s.stock_name||s.stock_id);
   setText(el.querySelector('.c-id'),s.stock_id);
   setHtml(el.querySelector('.c-type'),badge(s.stock_type));
   const priceEl=el.querySelector('.c-price');priceEl.className='c-price '+cls;setText(priceEl,fmt(s.close_price));
@@ -214,6 +225,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
         row = rows[-1]
         return {
             "stock_id": row.get("stock_id", stock_id),
+            "stock_name": get_stock_name(stock_id),
             "close_price": _num(row, "close_price"),
             "open_price": _num(row, "open_price"),
             "high_price": _num(row, "high_price"),
@@ -266,7 +278,8 @@ def poll_worker():
 
 
 def _empty_card(stock_id: str) -> dict:
-    return {"stock_id": stock_id, "close_price": None, "open_price": None,
+    return {"stock_id": stock_id, "stock_name": get_stock_name(stock_id),
+            "close_price": None, "open_price": None,
             "high_price": None, "low_price": None, "price_diff": None,
             "deal_volume": 0, "trade_count": 0, "total_in_volume": 0,
             "total_out_volume": 0, "estimated_day_volume": 0,
