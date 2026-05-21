@@ -162,7 +162,7 @@ function cardHTML(s){
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
 <div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e8).toFixed(2)}億 / ${vol(dealVol)}張</span></div>
-<div class="toggle-btn" onclick="const t=document.getElementById('${uid}');t.style.display=t.style.display==='none'?'block':'none';this.textContent=t.style.display==='none'?'價量紀錄 ▸':'價量紀錄 ▾'" style="font-size:11px">價量紀錄 ▸</div>
+<div class="muted" style="font-size:10px;margin-top:2px"><span class="toggle-btn" onclick="const t=document.getElementById('${uid}');t.style.display=t.style.display==='none'?'block':'none';this.textContent=t.style.display==='none'?'▸ 價量':'▾ 價量'" style="font-size:10px">▸ 價量</span></div>
 <div id="${uid}" style="display:none">${recs}</div>`;
 }
 function render(data){
