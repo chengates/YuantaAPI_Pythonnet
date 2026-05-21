@@ -117,22 +117,47 @@ function tag(label){
   const [text,cls]=map[label]||[label,'tag-churn'];
   return `<span class="tag ${cls}">${text}</span>`;
 }
-const cards={};
-function cardHTML(s){
-  if(s.close_price==null) return `<h2>${s.stock_id}</h2><div class="row muted">等待資料...</div>`;
+const cards={}, lastVal={};
+function setText(el,val){if(el.textContent!==val)el.textContent=val;}
+function setHtml(el,val){if(el.innerHTML!==val)el.innerHTML=val;}
+function buildCard(el,s){
+  if(!el._built){
+    el.innerHTML=`<h2><span class="c-id"></span> <span class="c-type"></span></h2>
+<div class="price"><span class="c-price"></span> <span class="c-pct" style="font-size:13px"></span></div>
+<div class="row"><span>開 <span class="c-o"></span></span><span>高 <span class="c-h"></span></span><span>低 <span class="c-l"></span></span></div>
+<div class="row"><span>量 <span class="c-v"></span> 張</span><span>成交筆數 <span class="c-tc"></span></span></div>
+<div class="row"><span>內盤 <span class="c-iv"></span> 張</span><span class="muted">外盤 <span class="c-ov"></span> 張</span></div>
+<div class="row"><span>估日量 <span class="c-ev"></span> 張</span><span class="muted">昨均% <span class="c-pya"></span>%</span></div>
+<div class="row"><span>MA5 <span class="c-m5"></span></span><span class="muted">MA10 <span class="c-m10"></span></span><span class="c-tag"></span></div>
+<div class="bar"><div class="bar-fill c-bar"></div></div>
+<div class="row"><span class="muted">買盤佔比 <span class="c-bp"></span>%</span><span class="muted">Score: <span class="c-score"></span></span></div>`;
+    el._built=true;
+  }
+  if(s.close_price==null){el.style.opacity='0.5';return;}
+  el.style.opacity='1';
   const cls=s.close_price>=s.open_price?'up':'down';
   const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
   const inRatio=s.total_in_volume+s.total_out_volume>0
     ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
-  return `<h2>${s.stock_id} <span>${badge(s.stock_type)}</span></h2>
-<div class="price ${cls}">${fmt(s.close_price)} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
-<div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
-<div class="row"><span>量 ${vol(s.deal_volume)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
-<div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
-<div class="row"><span>估日量 ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
-<div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
-<div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
-<div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>`;
+  setText(el.querySelector('.c-id'),s.stock_id);
+  setHtml(el.querySelector('.c-type'),badge(s.stock_type));
+  const priceEl=el.querySelector('.c-price');priceEl.className='c-price '+cls;setText(priceEl,fmt(s.close_price));
+  setText(el.querySelector('.c-pct'),(pct>0?'+'+pct:pct)+'%');
+  setText(el.querySelector('.c-o'),fmt(s.open_price));
+  setText(el.querySelector('.c-h'),fmt(s.high_price));
+  setText(el.querySelector('.c-l'),fmt(s.low_price));
+  setText(el.querySelector('.c-v'),vol(s.deal_volume));
+  setText(el.querySelector('.c-tc'),(s.trade_count||0).toLocaleString());
+  setText(el.querySelector('.c-iv'),vol(s.total_in_volume));
+  setText(el.querySelector('.c-ov'),vol(s.total_out_volume));
+  setText(el.querySelector('.c-ev'),vol(s.estimated_day_volume));
+  setText(el.querySelector('.c-pya'),s.pct_of_yesterday_avg||'--');
+  setText(el.querySelector('.c-m5'),fmt(s.ma5));
+  setText(el.querySelector('.c-m10'),fmt(s.ma10));
+  setHtml(el.querySelector('.c-tag'),tag(s.participation_label||'N/A'));
+  const bar=el.querySelector('.c-bar');bar.style.width=Math.min(100,Math.max(0,inRatio))+'%';bar.style.background=inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681';
+  setText(el.querySelector('.c-bp'),inRatio);
+  setText(el.querySelector('.c-score'),s.participation_score||'--');
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -140,9 +165,9 @@ function render(data){
   for(const [id,s] of Object.entries(data)){
     let el=cards[id];
     if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
-    el.innerHTML=cardHTML(s);
+    buildCard(el,s);
   }
-  document.getElementById('status').textContent='更新 '+new Date().toLocaleTimeString();
+  setText(document.getElementById('status'),'更新 '+new Date().toLocaleTimeString());
 }
 function summary(data){
   let totalVol=0,totalIn=0,totalOut=0,up=0,down=0;const entries=Object.entries(data);
