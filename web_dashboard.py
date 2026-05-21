@@ -77,6 +77,11 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .pcr-row label{font-size:11px;color:#8b949e}
 .pcr-result{font-size:12px;margin-top:8px;line-height:1.6}
 .toggle-btn{background:none;border:none;color:#58a6ff;cursor:pointer;font-size:13px;padding:4px 0}
+.depth-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
+.depth-table th{color:#8b949e;font-weight:normal;text-align:right;padding:1px 4px}
+.depth-table td{text-align:right;padding:1px 4px;font-variant-numeric:tabular-nums}
+.depth-table .bid{color:#3fb950}.depth-table .ask{color:#f85149}
+.stat-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px;color:#8b949e;border-top:1px solid #21262d;padding-top:4px}
 </style>
 </head>
 <body>
@@ -140,7 +145,17 @@ function buildCard(el,s){
 <div class="row"><span>估日量 <span class="c-ev"></span> 張</span><span class="muted">昨均% <span class="c-pya"></span>%</span></div>
 <div class="row"><span>MA5 <span class="c-m5"></span></span><span class="muted">MA10 <span class="c-m10"></span></span><span class="c-tag"></span></div>
 <div class="bar"><div class="bar-fill c-bar"></div></div>
-<div class="row"><span class="muted">買盤佔比 <span class="c-bp"></span>%</span><span class="muted">Score: <span class="c-score"></span></span></div>`;
+<div class="row"><span class="muted">買盤佔比 <span class="c-bp"></span>%</span><span class="muted">Score: <span class="c-score"></span></span></div>
+<div class="stat-row"><span class="c-time"></span><span class="c-total"></span></div>
+<button class="toggle-btn c-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">五檔明細 ▸</button>
+<div class="c-depth" style="display:none"><table class="depth-table">
+<tr><th></th><th>買價</th><th>買量(張)</th><th>賣價</th><th>賣量(張)</th></tr>
+<tr><td>1</td><td class="bid c-bp1"></td><td class="bid c-bv1"></td><td class="ask c-sp1"></td><td class="ask c-sv1"></td></tr>
+<tr><td>2</td><td class="bid c-bp2"></td><td class="bid c-bv2"></td><td class="ask c-sp2"></td><td class="ask c-sv2"></td></tr>
+<tr><td>3</td><td class="bid c-bp3"></td><td class="bid c-bv3"></td><td class="ask c-sp3"></td><td class="ask c-sv3"></td></tr>
+<tr><td>4</td><td class="bid c-bp4"></td><td class="bid c-bv4"></td><td class="ask c-sp4"></td><td class="ask c-sv4"></td></tr>
+<tr><td>5</td><td class="bid c-bp5"></td><td class="bid c-bv5"></td><td class="ask c-sp5"></td><td class="ask c-sv5"></td></tr>
+</table></div>`;
     el._built=true;
   }
   if(s.close_price==null){el.style.opacity='0.5';return;}
@@ -169,6 +184,16 @@ function buildCard(el,s){
   const bar=el.querySelector('.c-bar');bar.style.width=Math.min(100,Math.max(0,inRatio))+'%';bar.style.background=inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681';
   setText(el.querySelector('.c-bp'),inRatio);
   setText(el.querySelector('.c-score'),s.participation_score||'--');
+  setText(el.querySelector('.c-time'),(s.timestamp||'').slice(-8));
+  const dealAmt=s.deal_amount||0, dealVol=s.deal_volume||0;
+  setText(el.querySelector('.c-total'),'成交總額 '+(dealAmt/1e8).toFixed(2)+'億 / '+vol(dealVol)+'張');
+  const bp=s.buy_prices||[], bv=s.buy_volumes||[], sp=s.sell_prices||[], sv=s.sell_volumes||[];
+  for(let i=0;i<5;i++){
+    setText(el.querySelector('.c-bp'+(i+1)),bp[i]?fmt(bp[i]):'--');
+    setText(el.querySelector('.c-bv'+(i+1)),bv[i]?Math.round(bv[i]/1000).toLocaleString():'--');
+    setText(el.querySelector('.c-sp'+(i+1)),sp[i]?fmt(sp[i]):'--');
+    setText(el.querySelector('.c-sv'+(i+1)),sv[i]?Math.round(sv[i]/1000).toLocaleString():'--');
+  }
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -229,6 +254,14 @@ def read_latest_csv(stock_id: str) -> dict | None:
         return {
             "stock_id": row.get("stock_id", stock_id),
             "stock_name": get_stock_name(stock_id),
+            "buy_prices": _parse_list(row.get("buy_prices", "")),
+            "buy_volumes": _parse_list(row.get("buy_volumes", "")),
+            "sell_prices": _parse_list(row.get("sell_prices", "")),
+            "sell_volumes": _parse_list(row.get("sell_volumes", "")),
+            "buy_total_volume": _num(row, "buy_total_volume", int),
+            "sell_total_volume": _num(row, "sell_total_volume", int),
+            "buy_sell_imbalance": _num(row, "buy_sell_imbalance", int),
+            "deal_amount": _num(row, "deal_amount"),
             "close_price": _num(row, "close_price"),
             "open_price": _num(row, "open_price"),
             "high_price": _num(row, "high_price"),
@@ -243,11 +276,22 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "ma5": _num(row, "ma5"),
             "ma10": _num(row, "ma10"),
             "stock_type": row.get("stock_type", "unknown"),
+            "timestamp": row.get("timestamp", ""),
             "participation_score": _num(row, "participation_score"),
             "participation_label": row.get("participation_label", "N/A"),
         }
     except Exception:
         return None
+
+
+def _parse_list(val):
+    """Parse CSV list string like '[1,2,3]' → [1,2,3]"""
+    try:
+        if isinstance(val, str) and val.startswith('['):
+            return [float(x.strip()) for x in val.strip('[]').split(',') if x.strip()]
+    except Exception:
+        pass
+    return []
 
 
 def _num(row, key, cast=float):
@@ -282,13 +326,15 @@ def poll_worker():
 
 def _empty_card(stock_id: str) -> dict:
     return {"stock_id": stock_id, "stock_name": get_stock_name(stock_id),
-            "close_price": None, "open_price": None,
+            "close_price": None, "open_price": None, "timestamp": "",
             "high_price": None, "low_price": None, "price_diff": None,
-            "deal_volume": 0, "trade_count": 0, "total_in_volume": 0,
-            "total_out_volume": 0, "estimated_day_volume": 0,
+            "deal_volume": 0, "deal_amount": None, "trade_count": 0,
+            "total_in_volume": 0, "total_out_volume": 0, "estimated_day_volume": 0,
             "pct_of_yesterday_avg": None, "ma5": None, "ma10": None,
             "stock_type": "unknown", "participation_score": None,
-            "participation_label": "等待資料"}
+            "participation_label": "等待資料",
+            "buy_prices": [], "buy_volumes": [], "sell_prices": [], "sell_volumes": [],
+            "buy_total_volume": 0, "sell_total_volume": 0, "buy_sell_imbalance": 0}
 
 
 @app.route("/")
