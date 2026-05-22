@@ -1,5 +1,5 @@
 """ONE-TIME SETUP — Run once, save the IDs to .env / config.
-Creates 3 agents (Opus 4.7 / Sonnet 4.6 / Haiku 4.5) and 1 environment.
+Creates 3 agents (Opus 4.7 / Sonnet 4.6 / Sonnet 4.6) and 1 environment.
 """
 import os
 import sys
@@ -69,7 +69,7 @@ SKILLS = [
 ]
 
 MODELS = {
-    "opus": "claude-opus-4-7",
+    "sonnet": "claude-sonnet-4-6",
     "sonnet": "claude-sonnet-4-6",
     "haiku": "claude-haiku-4-5",
 }

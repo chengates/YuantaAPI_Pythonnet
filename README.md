@@ -17,7 +17,7 @@ cStocks.py (matplotlib) ────────────▶ K 線圖表 / MA
                                      ├── 12 種繪圖工具 (線/通道/弧/斐波那契/測距)
                                      └── Whale 大戶偵測 (🐋↗ 吸收 / 🐋↘ 脫手)
 
-claude_agent_setup.py ──────────────▶ Managed Agent 建立 (Opus 4.7 / Sonnet 4.6 / Haiku 4.5)
+claude_agent_setup.py ──────────────▶ Managed Agent 建立 (Opus 4.7 / Sonnet 4.6 / Claude 3.5)
 claude_agent_runtime.py ────────────▶ Managed Agent 運行 (4 種模式)
 ```
 
