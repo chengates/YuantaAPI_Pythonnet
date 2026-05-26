@@ -838,39 +838,40 @@ def OVFuture_order_out_response(abyData):
 def ReadWatchListAll_Out(abyData):
     dataGetter = YuantaDataHelper(enumLangType.NORMAL)
     dataGetter.OutMsgLoad(abyData)
-    
+
     #筆數
     nRowCount = dataGetter.GetUInt()
     result = ''
     result = '讀取報價表結果:\r\n'
-    
+
     try:
         for i in range(nRowCount):
+            market_no = str(dataGetter.GetByte())
+            stock_id = dataGetter.GetStr(12)
+            stock_name = dataGetter.GetStr(20)
+            yst_price = dataGetter.GetInt()       # 昨收價
+            open_ref = dataGetter.GetInt()         # 開盤參考價
+            up_price = dataGetter.GetInt()         # 漲停價
+            down_price = dataGetter.GetInt()       # 跌停價
+            yst_vol = dataGetter.GetInt()          # 昨量
+            ext_name = dataGetter.GetStr(20)       # 擴充名
+            decimal = dataGetter.GetShort()        # 小數位數
+            credit_pct = dataGetter.GetByte()      # 融資成數
+            bond_pct = dataGetter.GetByte()        # 融券成數
+
+            # 存入全域參考價 (dashboard 用)
+            SUBSCRIPTION_STATE.setdefault('stock_ref', {})[stock_id] = {
+                'yst_price': yst_price,
+                'up_price': up_price,
+                'down_price': down_price,
+                'yst_vol': yst_vol,
+                'stock_name': stock_name,
+            }
+
             result +='\r\n市場別:{0} 商品代碼:{1} 商品名稱:{2}\r\n昨收價:{3}\r\n開盤參考價:{4}\r\n漲停價:{5}\r\n跌停價:{6}\r\n昨量:{7}\r\n擴充名:{8}\r\n小數位數:{9}\r\n融資成數:{10}\r\n融券成數:{11}'.format(
-                #byMarketNo市場代碼
-                str(dataGetter.GetByte()),
-                #abyStkCode股票代碼
-                dataGetter.GetStr(12),
-                #abyStkName股票名稱
-                dataGetter.GetStr(20),
-                #intYstPrice昨收價
-                str(dataGetter.GetInt()),
-                #intOpenRefPrice開盤參考價
-                str(dataGetter.GetInt()),
-                #intUpStopPrice漲停價
-                str(dataGetter.GetInt()),
-                #intDownStopPrice跌停價
-                str(dataGetter.GetInt()),
-                #uintYstVol昨量
-                str(dataGetter.GetInt()),
-                #abyExtName擴充名
-                dataGetter.GetStr(20),  
-                 #shtDecimal小數位數 
-                str(dataGetter.GetShort()),    
-                #byCreditPercent融資成數
-                str(dataGetter.GetByte()),
-                #byLenBondPercent融券成數
-                str(dataGetter.GetByte()),)
+                market_no, stock_id, stock_name,
+                str(yst_price), str(open_ref), str(up_price), str(down_price),
+                str(yst_vol), ext_name, str(decimal), str(credit_pct), str(bond_pct))
 
             #dataGetter.GetStr(24); #中間24bytes沒要用不解開
 
@@ -901,6 +902,8 @@ def ReadWatchListAll_Out(abyData):
                 str(dataGetter.GetInt()))
 
             dataGetter.GetStr(105); #後面資料沒用到就不解析 需要請自行參考文件調整
+
+        _save_stock_ref_json()
 
     except Exception as error:
         result = error
@@ -2876,14 +2879,77 @@ def UnSubscribeStocktick_api(yuanta):
     yuanta.UnsubscribeStocktick(lstStocktick) 
     
 #讀取報價
-#ReadWatchListAll 50.0.0.16
-def ReadWatchListAll_api(yuanta):
-    dataSetter =  YuantaDataHelper(enumLangType.NORMAL)
-    dataSetter.SetFunctionID(50, 0, 0, 16);
-    dataSetter.SetUInt(1);
-    dataSetter.SetByte(1)
-    dataSetter.SetTByte('2330',12)
-    yuanta.RQ('S98875005091',dataSetter) 
+#ReadWatchListAll 50.0.0.16 — 取得昨收價/漲停價/跌停價
+def ReadWatchListAll_api(yuanta, stock_ids=None):
+    if stock_ids is None:
+        stock_ids = get_watchlist_stocks()
+    print(f"[{dt.datetime.now()}] ReadWatchListAll: 查詢 {len(stock_ids)} 檔參考價...")
+    for sid in stock_ids:
+        dataSetter = YuantaDataHelper(enumLangType.NORMAL)
+        dataSetter.SetFunctionID(50, 0, 0, 16)
+        dataSetter.SetUInt(1)
+        dataSetter.SetByte(1)
+        dataSetter.SetTByte(sid, 12)
+        yuanta.RQ('S98875005091', dataSetter)
+    time.sleep(1)
+
+
+def _save_stock_ref_json():
+    """將 SUBSCRIPTION_STATE['stock_ref'] 寫入 stock_ref.json 供 dashboard 讀取，
+    同時將參考價寫入 @stockID.csv（若當日尚無記錄）。"""
+    ref = SUBSCRIPTION_STATE.get('stock_ref', {})
+    if not ref:
+        return
+    try:
+        with open("stock_ref.json", "w", encoding="utf-8") as f:
+            json.dump(ref, f, ensure_ascii=False, indent=2)
+        print(f"[{dt.datetime.now()}] stock_ref.json 已更新: {len(ref)} 檔")
+    except Exception as e:
+        print(f"[{dt.datetime.now()}] stock_ref.json 寫入失敗: {e}")
+
+    today = dt.datetime.now().strftime("%Y%m%d")
+    for stock_id, info in ref.items():
+        filename = f"@{stock_id}.csv"
+        # 檢查當日是否已有記錄
+        skip = False
+        if os.path.exists(filename):
+            try:
+                with open(filename, encoding="utf-8", errors="replace") as f:
+                    for row in csv.DictReader(f):
+                        if row.get("date", "") == today:
+                            skip = True
+                            break
+            except Exception:
+                pass
+        if skip:
+            continue
+
+        yst_price = info.get("yst_price", 0)
+        fieldnames = ["date", "stock_id", "open_price", "high_price", "low_price",
+                      "close_price", "total_volume", "total_in_volume", "total_out_volume",
+                      "estimated_day_volume", "trade_count"]
+        try:
+            file_exists = os.path.exists(filename)
+            with open(filename, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow({
+                    "date": today,
+                    "stock_id": stock_id,
+                    "open_price": yst_price,
+                    "high_price": None,
+                    "low_price": None,
+                    "close_price": yst_price,
+                    "total_volume": 0,
+                    "total_in_volume": 0,
+                    "total_out_volume": 0,
+                    "estimated_day_volume": 0,
+                    "trade_count": 0,
+                })
+            print(f"[{dt.datetime.now()}] @{stock_id}.csv 已建立今日參考價: {yst_price}")
+        except Exception as e:
+            print(f"[{dt.datetime.now()}] @{stock_id}.csv 寫入失敗: {e}")
 
 #查詢委託成交
 # OrderTradeReport 20.101.0.18
@@ -2997,8 +3063,8 @@ SubscribeWatchlistAll_api(objYuantaOneAPI)
 #訂閱分時明細Stocktick
 SubscribeStocktick_api(objYuantaOneAPI)
 
-#讀取報價ReadWatchListAll
-#ReadWatchListAll_api(objYuantaOneAPI)
+#讀取報價ReadWatchListAll (取得昨收/漲停/跌停參考價)
+ReadWatchListAll_api(objYuantaOneAPI)
 
 #查詢委託成交OrderTradeReport
 #OrderTradeReport_api(objYuantaOneAPI)

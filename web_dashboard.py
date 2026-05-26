@@ -62,6 +62,8 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .type-large{background:#238636}.type-mid{background:#9e6a03}.type-small{background:#6e7681}.type-spec{background:#da3633}
 .row{display:flex;justify-content:space-between;margin:4px 0;font-size:13px}
 .price{font-size:22px;font-weight:bold}
+.price.limit-up{background:#da3633;color:#fff;padding:2px 8px;border-radius:4px;display:inline-block}
+.price.limit-down{background:#238636;color:#fff;padding:2px 8px;border-radius:4px;display:inline-block}
 .up{color:#3fb950}.down{color:#f85149}.muted{color:#8b949e}
 .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold}
 .tag-buy{background:#238636;color:#fff}.tag-strong-buy{background:#1f6feb;color:#fff}
@@ -140,6 +142,8 @@ const cards={};
 function cardHTML(s){
   if(s.close_price==null) return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span></h2><div class="row muted">等待資料...</div>`;
   const cls=s.close_price>=s.open_price?'up':'down';
+  const limitCls=s.limit_state==='up'?' limit-up':s.limit_state==='down'?' limit-down':'';
+  const limitLabel=s.limit_state==='up'?' 漲停':s.limit_state==='down'?' 跌停':'';
   const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
   const inRatio=s.total_in_volume+s.total_out_volume>0
     ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
@@ -154,7 +158,7 @@ function cardHTML(s){
   }
   const uid='r'+s.stock_id;
   return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span></h2>
-<div class="price ${cls}">${fmt(s.close_price)} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
+<div class="price ${cls}${limitCls}">${fmt(s.close_price)} ${limitLabel} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
 <div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
@@ -295,6 +299,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "timestamp": row.get("timestamp", ""),
             "participation_score": participation_score,
             "participation_label": participation_label if participation_label not in ("", "N/A", "等待資料") else "等待資料",
+            "limit_state": _calc_limit_state(close_price, stock_id),
         }
     except Exception:
         return None
@@ -308,6 +313,40 @@ def _normalize_price(val):
     if abs(val) > 100000:
         return round(val / 10000, 2)
     return val
+
+
+def _load_stock_ref() -> dict:
+    """從 stock_ref.json 載入 API 查詢的昨收/漲停/跌停參考價。"""
+    path = "stock_ref.json"
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _get_limit_prices(stock_id: str):
+    """從 stock_ref.json 取得漲停價/跌停價 (API 回傳值，已正規化)。
+    回傳 (up_price, down_price) 或 (None, None)。"""
+    ref = _load_stock_ref()
+    entry = ref.get(stock_id, {})
+    up_price = _normalize_price(entry.get("up_price"))
+    down_price = _normalize_price(entry.get("down_price"))
+    return up_price, down_price
+
+
+def _calc_limit_state(close_price, stock_id):
+    """判斷是否漲跌停。使用 API 回傳的漲停價/跌停價。"""
+    if close_price is None:
+        return None
+    up_price, down_price = _get_limit_prices(stock_id)
+    if up_price is not None and close_price >= up_price:
+        return 'up'
+    if down_price is not None and close_price <= down_price:
+        return 'down'
+    return None
 
 
 def _detect_stock_type(stock_id: str, price=None) -> str:
@@ -419,7 +458,8 @@ def _empty_card(stock_id: str) -> dict:
             "stock_type": "unknown", "participation_score": None,
             "participation_label": "等待資料",
             "buy_prices": [], "buy_volumes": [], "sell_prices": [], "sell_volumes": [],
-            "buy_total_volume": 0, "sell_total_volume": 0, "buy_sell_imbalance": 0}
+            "buy_total_volume": 0, "sell_total_volume": 0, "buy_sell_imbalance": 0,
+            "limit_state": None}
 
 
 @app.route("/")

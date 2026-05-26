@@ -20,6 +20,7 @@ build/
 # Data — CSV files are runtime output, not source
 *.csv
 !yesterday/*.csv
+stock_ref.json
 
 # Credentials
 accountEnv.json
