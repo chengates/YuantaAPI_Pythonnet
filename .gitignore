@@ -22,10 +22,14 @@ build/
 !yesterday/*.csv
 
 # Credentials
+accountEnv.json
 *github*.txt
 *密碼*.txt
 *金鑰*.txt
 *token*.txt
+
+# Backup files
+*.bak
 
 # DLL (large binaries — uncomment if needed)
 # *.dll

@@ -34,6 +34,7 @@
 
 import os
 import clr
+import json
 import time
 import signal
 import datetime as dt
@@ -125,23 +126,11 @@ class StockQuoteState:
             self.total_out_volume = total_out
         if total_in is not None:
             self.total_in_volume = total_in
-        if deal_price is not None:
-            self.last_deal_price = deal_price
+        # 只更新成交量，不覆蓋 OHLC — 五檔 _infer_prices_from_depth 已提供更準確的 TWD 價格
         if deal_volume is not None:
             self.last_deal_volume = deal_volume
             self.total_volume += deal_volume
             self.trade_count += 1
-
-        if self.open_price is None and self.last_deal_price is not None:
-            self.open_price = self.last_deal_price
-
-        if self.last_deal_price is not None:
-            if self.high_price is None or self.last_deal_price > self.high_price:
-                self.high_price = self.last_deal_price
-            if self.low_price is None or self.last_deal_price < self.low_price:
-                self.low_price = self.last_deal_price
-            self.close_price = self.last_deal_price
-            self._append_price_history(self.last_deal_price)
 
         self._update_estimates()
 
@@ -2207,22 +2196,20 @@ def SubscribeWatclistAll_Out(abyData):
         if byTemp == '22':
             buy_vol = dataGetter.GetInt()
             sell_vol = dataGetter.GetInt()
-            state.buy_volumes = [buy_vol]
-            state.sell_volumes = [sell_vol]
+            # 最佳買賣量 (不覆蓋五檔陣列，五檔資料更完整)
             state.last_update = time.time()
             state.latest_timestamp = state.last_update
             result += f"WatchlistAll {stock_id} 22: buy_vol={buy_vol}, sell_vol={sell_vol}\r\n"
         elif byTemp == '28':
             buy_price = dataGetter.GetInt()
             sell_price = dataGetter.GetInt()
-            state.buy_prices = [buy_price]
-            state.sell_prices = [sell_price]
+            # 最佳買賣價 (不覆蓋五檔陣列，五檔資料更完整)
             state.last_update = time.time()
             state.latest_timestamp = state.last_update
             result += f"WatchlistAll {stock_id} 28: buy_price={buy_price}, sell_price={sell_price}\r\n"
         elif byTemp == '29':
             yuantaTime = dataGetter.GetTYuantaTime()
-            timestamp = dt.now().replace(
+            timestamp = dt.datetime.now().replace(
                 hour=yuantaTime.bytHour,
                 minute=yuantaTime.bytMin,
                 second=yuantaTime.bytSec,
@@ -2280,6 +2267,7 @@ def SubscribeFiveTick_out(abyData):
         sell_volumes = []
 
         if byIndexFlag in ('50', '51'):
+            # API 欄位順序: 買價1-5, 買量1-5, 賣價1-5, 賣量1-5 (與 IronPython 一致)
             for _ in range(5):
                 buy_prices.append(dataGetter.GetInt())
             for _ in range(5):
@@ -2467,17 +2455,43 @@ def objApi_OnResponse(intMark, dwIndex, strIndex, objHandle, objValue):
     elif intMark == 2:
         print(f"[{dt.datetime.now()}] intMark=2 回應沒有 result，strIndex={strIndex}")
 
-# Open		
+# Open
 def open_api(yuanta):
-    yuanta.Open(enumEnvironmentMode.UAT)
+    cfg = _load_account_config()
+    server = cfg.get("server", "UAT").upper()
+    mode = getattr(enumEnvironmentMode, server, enumEnvironmentMode.UAT)
+    print(f"[{dt.datetime.now()}] 選擇伺服器: {server}")
+    yuanta.Open(mode)
     time.sleep(3)
+
+# 讀取 accountEnv.json (含 server 及 accounts)
+def _load_account_config():
+    if os.path.exists("accountEnv.json"):
+        with open("accountEnv.json", encoding="utf-8") as f:
+            return json.load(f)
+    print(f"[{dt.datetime.now()}] ⚠ accountEnv.json 不存在，使用預設 UAT")
+    return {"server": "UAT", "accounts": []}
+
+def get_active_accounts():
+    """從 accountEnv.json 讀取帳號清單，回傳 [{"stock": [id,pwd], "futures": [id,pwd]}, ...]"""
+    cfg = _load_account_config()
+    return cfg.get("accounts", [])
 
 # Login
 def login_api(yuanta):
-    #現貨
-    yuanta.Login('S98875005091', '1234')
-    #期貨
-    #yuanta.Login('FF021005P051234567', '1234')
+    accounts = get_active_accounts()
+    if not accounts:
+        print(f"[{dt.datetime.now()}] ⚠ accountEnv.json 無帳號設定，略過登入")
+        return
+    for i, acct in enumerate(accounts):
+        stock = acct.get("stock")
+        futures = acct.get("futures")
+        if stock and len(stock) >= 2:
+            print(f"[{dt.datetime.now()}] 登入現貨帳號 [{i}]: {stock[0]}")
+            yuanta.Login(stock[0], stock[1])
+        if futures and len(futures) >= 2:
+            print(f"[{dt.datetime.now()}] 登入期貨帳號 [{i}]: {futures[0]}")
+            yuanta.Login(futures[0], futures[1])
     time.sleep(3)
 
 # LogOut
@@ -3092,6 +3106,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     saved_records = []
     last_save_time = time.time()
     last_subscribe_time = time.time()
+    prev_phase = _market_phase()
     global _daily_summary_written
 
     try:
@@ -3106,14 +3121,52 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
             current_time = time.time()
             phase = _market_phase()
 
-            # ---- 盤後搓合結束 → 寫日總結並停止 ----
+            # ---- 盤後搓合結束 → 先做最後一次 CSV 保存, 再寫日總結並停止 ----
             if phase == 'closed':
-                for stock_id, state in SUBSCRIPTION_STATE['stocks'].items():
+                # 14:30 強制寫入最後一筆 CSV (matching→closed)
+                saved_count = 0
+                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
+                    record = state.build_save_record() if isinstance(state, StockQuoteState) else state
+                    if not record or not record.get('stock_id'):
+                        continue
+                    if not state.has_trade_activity():
+                        continue
+                    now = dt.datetime.now()
+                    record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
+                    saved_records.append(record)
+                    await _save_to_csv_async(stock_id, record)
+                    saved_count += 1
+                    state.last_saved_timestamp = state.latest_timestamp
+                if saved_count > 0:
+                    print(f"[{dt.datetime.now()}] 14:30 強制寫入最後一筆 CSV: {saved_count} 筆")
+                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
                     if stock_id not in _daily_summary_written:
                         _write_daily_summary(stock_id, state)
                         _daily_summary_written.add(stock_id)
                 print(f"[{dt.datetime.now()}] 收盤完成，CSV 輸出停止")
                 break
+
+            # ---- 13:30 強制寫入最後一筆 CSV (交易→盤後搓合轉換) ----
+            if prev_phase == 'trading' and phase == 'matching':
+                print(f"[{dt.datetime.now()}] 13:30 收盤時間到，強制寫入最後一筆 CSV")
+                saved_count = 0
+                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
+                    record = state.build_save_record() if isinstance(state, StockQuoteState) else state
+                    if not record or not record.get('stock_id'):
+                        continue
+                    if not state.has_trade_activity():
+                        continue
+                    now = dt.datetime.now()
+                    record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
+                    saved_records.append(record)
+                    await _save_to_csv_async(stock_id, record)
+                    saved_count += 1
+                    state.last_saved_timestamp = state.latest_timestamp
+                if saved_count > 0:
+                    print(f"[{dt.datetime.now()}] 13:30 強制寫入完成: {saved_count} 筆")
+                else:
+                    print(f"[{dt.datetime.now()}] 13:30 強制寫入: 無數據可保存")
+                last_save_time = current_time
 
             subscribe_triggered = False
             if current_time - last_subscribe_time >= subscribe_interval and phase in ('trading', 'matching'):
@@ -3125,15 +3178,15 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
-            # ---- 交易時段才保存 CSV (13:30 前) ----
-            if not subscribe_triggered and current_time - last_save_time >= save_interval:
+            # ---- 交易時段才保存 CSV (matching 期間暫停) ----
+            if phase == 'trading' and not subscribe_triggered and current_time - last_save_time >= save_interval:
                 print(f"[{dt.datetime.now()}] 開始保存數據... (phase={phase})")
                 saved_count = 0
-                for stock_id, state in SUBSCRIPTION_STATE['stocks'].items():
+                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
                     record = state.build_save_record() if isinstance(state, StockQuoteState) else state
                     if not record or not record.get('stock_id'):
                         continue
-                    if state.last_saved_timestamp == state.latest_timestamp and phase == 'trading':
+                    if state.last_saved_timestamp == state.latest_timestamp:
                         continue
                     if not state.has_trade_activity():
                         continue
@@ -3151,10 +3204,11 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                 last_save_time = current_time
 
             # 每 1/60 秒顯示所有已訂閱股票的最新信息
-            for state in SUBSCRIPTION_STATE['stocks'].values():
+            for state in list(SUBSCRIPTION_STATE['stocks'].values()):
                 _display_quote_info(state)
 
             await asyncio.sleep(update_interval)
+            prev_phase = phase
 
     except KeyboardInterrupt:
         print("\n訂閱監控已停止")

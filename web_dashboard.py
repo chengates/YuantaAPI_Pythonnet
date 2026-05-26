@@ -121,7 +121,7 @@ async function switchWatchlist(name){
   location.reload();
 }
 loadWatchlists();
-function fmt(n,d=2){if(n==null)return'--';n=Number(n);if(Math.abs(n)>1e5)n/=1e4;return n.toFixed(d);}
+function fmt(n,d=2){if(n==null)return'--';return Number(n).toFixed(d);}
 function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
 function badge(type){
   const m={large_cap:['大型','type-large'],mid_cap:['中型','type-mid'],
@@ -232,37 +232,112 @@ def read_latest_csv(stock_id: str) -> dict | None:
         if not rows:
             return None
         row = rows[-1]
+        buy_prices = _parse_list(row.get("buy_prices", ""))
+        buy_volumes = _parse_list(row.get("buy_volumes", ""))
+        sell_prices = _parse_list(row.get("sell_prices", ""))
+        sell_volumes = _parse_list(row.get("sell_volumes", ""))
+        buy_total_volume = _num(row, "buy_total_volume", int) or sum(int(v) for v in buy_volumes if v)
+        sell_total_volume = _num(row, "sell_total_volume", int) or sum(int(v) for v in sell_volumes if v)
+        buy_sell_imbalance = _num(row, "buy_sell_imbalance", int)
+        if buy_sell_imbalance is None and (buy_total_volume or sell_total_volume):
+            buy_sell_imbalance = (buy_total_volume or 0) - (sell_total_volume or 0)
+        pct_val = row.get("pct_of_yesterday_avg", "")
+        pct_of_yesterday_avg = _num(row, "pct_of_yesterday_avg")
+        if pct_val == "pct_of_yesterday_avg":
+            pct_of_yesterday_avg = None
+        close_price = _normalize_price(_num(row, "close_price"))
+        open_price = _normalize_price(_num(row, "open_price"))
+        price_diff = _num(row, "price_diff")
+        if price_diff is None and close_price is not None and open_price is not None:
+            price_diff = round(close_price - open_price, 2)
+        deal_amount = _num(row, "deal_amount")
+        deal_volume = _num(row, "deal_volume", int)
+        if deal_amount is None and close_price is not None and deal_volume:
+            deal_amount = round(close_price * deal_volume, 0)
+        stock_type = row.get("stock_type", "")
+        if not stock_type or stock_type == "unknown":
+            stock_type = _detect_stock_type(stock_id, close_price)
+        participation_score = _num(row, "participation_score")
+        participation_label = row.get("participation_label", "")
+        if participation_label in ("", "N/A", "等待資料") and participation_score is not None:
+            participation_label = _score_to_label(participation_score)
+        elif not participation_label or participation_label in ("N/A", "等待資料"):
+            total_in = _num(row, "total_in_volume", int) or 0
+            total_out = _num(row, "total_out_volume", int) or 0
+            if total_in + total_out > 0:
+                participation_score = round((total_in - total_out) / (total_in + total_out) * 50, 1)
+                participation_label = _score_to_label(participation_score)
         return {
             "stock_id": row.get("stock_id", stock_id),
             "stock_name": get_stock_name(stock_id),
-            "buy_prices": _parse_list(row.get("buy_prices", "")),
-            "buy_volumes": _parse_list(row.get("buy_volumes", "")),
-            "sell_prices": _parse_list(row.get("sell_prices", "")),
-            "sell_volumes": _parse_list(row.get("sell_volumes", "")),
-            "buy_total_volume": _num(row, "buy_total_volume", int),
-            "sell_total_volume": _num(row, "sell_total_volume", int),
-            "buy_sell_imbalance": _num(row, "buy_sell_imbalance", int),
-            "deal_amount": _num(row, "deal_amount"),
-            "close_price": _num(row, "close_price"),
-            "open_price": _num(row, "open_price"),
-            "high_price": _num(row, "high_price"),
-            "low_price": _num(row, "low_price"),
-            "price_diff": _num(row, "price_diff"),
-            "deal_volume": _num(row, "deal_volume", int),
+            "buy_prices": buy_prices,
+            "buy_volumes": buy_volumes,
+            "sell_prices": sell_prices,
+            "sell_volumes": sell_volumes,
+            "buy_total_volume": buy_total_volume,
+            "sell_total_volume": sell_total_volume,
+            "buy_sell_imbalance": buy_sell_imbalance,
+            "deal_amount": deal_amount,
+            "close_price": close_price,
+            "open_price": open_price,
+            "high_price": _normalize_price(_num(row, "high_price")),
+            "low_price": _normalize_price(_num(row, "low_price")),
+            "price_diff": price_diff,
+            "deal_volume": deal_volume,
             "trade_count": _num(row, "trade_count", int),
             "total_in_volume": _num(row, "total_in_volume", int),
             "total_out_volume": _num(row, "total_out_volume", int),
             "estimated_day_volume": _num(row, "estimated_day_volume", int),
-            "pct_of_yesterday_avg": _num(row, "pct_of_yesterday_avg"),
+            "pct_of_yesterday_avg": pct_of_yesterday_avg,
             "ma5": _num(row, "ma5"),
             "ma10": _num(row, "ma10"),
-            "stock_type": row.get("stock_type", "unknown"),
+            "stock_type": stock_type,
             "timestamp": row.get("timestamp", ""),
-            "participation_score": _num(row, "participation_score"),
-            "participation_label": row.get("participation_label", "N/A"),
+            "participation_score": participation_score,
+            "participation_label": participation_label if participation_label not in ("", "N/A", "等待資料") else "等待資料",
         }
     except Exception:
         return None
+
+
+def _normalize_price(val):
+    """將可能為 API 原始整數的價格正規化為 TWD。
+    台灣個股價格合理範圍 1~10000，若超過 100000 視為原始整數 (/10000)。"""
+    if val is None:
+        return None
+    if abs(val) > 100000:
+        return round(val / 10000, 2)
+    return val
+
+
+def _detect_stock_type(stock_id: str, price=None) -> str:
+    tw50 = {
+        '2330', '2317', '2454', '2412', '2881', '2882', '2886', '2891',
+        '2308', '2303', '2327', '2344', '2345', '2357', '2379', '2382',
+        '2395', '2408', '3008', '3034', '3045', '3711', '4904', '4938',
+        '5871', '5876', '5880', '6505', '1301', '1303', '1326', '2002',
+        '2207', '2603', '2609', '2610', '2615', '2633', '2801', '2880',
+        '2883', '2884', '2885', '2887', '2888', '2890', '2892', '2912',
+        '3443', '3533', '3661', '5269', '6415', '8046', '8299', '8454',
+    }
+    if stock_id in tw50:
+        return 'large_cap'
+    if len(stock_id) == 4 and stock_id[0] in ('2', '3', '4', '5', '6', '8', '9'):
+        return 'mid_cap'
+    return 'small_cap'
+
+
+def _score_to_label(score):
+    if score > 30:
+        return "主力強力買進"
+    elif score > 10:
+        return "主力溫和買進"
+    elif score > -10:
+        return "散戶盤整"
+    elif score > -30:
+        return "主力溫和賣出"
+    else:
+        return "主力強力賣出"
 
 
 def _parse_list(val):
@@ -313,7 +388,7 @@ def _recent_rows_api(stock_id: str, n: int = 5) -> list:
     for r in rows:
         records.append({
             "time": r.get("timestamp", "")[-8:],
-            "price": _num(r, "close_price"),
+            "price": _normalize_price(_num(r, "close_price")),
             "vol": _num(r, "deal_volume", int) or 0,
             "in_vol": _num(r, "total_in_volume", int) or 0,
             "out_vol": _num(r, "total_out_volume", int) or 0,
@@ -410,6 +485,39 @@ def api_switch_watchlist(name):
         _active_watchlist = name
         return jsonify({"ok": True, "active": name, "stocks": wl[name].get("stocks", [])})
     return jsonify({"ok": False, "error": f"自選股 '{name}' 不存在"}), 404
+
+
+@app.route("/api/lookup")
+def api_lookup():
+    """股票代號 ↔ 公司名稱 雙向查詢。
+    ?symbol=2330 → 回傳公司名稱
+    ?name=台積電 → 回傳股票代號
+    ?q=xxx → 自動判斷（先試代號，再試名稱）"""
+    names = load_names()
+    symbol = request.args.get("symbol", "")
+    name = request.args.get("name", "")
+    q = request.args.get("q", "")
+
+    if symbol:
+        result = names.get(symbol.strip())
+        return jsonify({"query": symbol, "result": result, "type": "symbol_to_name"})
+    if name:
+        name = name.strip()
+        match = next((sid for sid, cname in names.items() if cname == name), None)
+        return jsonify({"query": name, "result": match, "type": "name_to_symbol"})
+    if q:
+        q = q.strip()
+        if q in names:
+            return jsonify({"query": q, "result": names[q], "type": "symbol_to_name"})
+        match = next((sid for sid, cname in names.items() if cname == q), None)
+        if match:
+            return jsonify({"query": q, "result": match, "type": "name_to_symbol"})
+        if q.isdigit() and len(q) == 4:
+            return jsonify({"query": q, "result": None, "type": "symbol_to_name",
+                            "hint": f"'{q}' 不在 stock_names.json 中"})
+        return jsonify({"query": q, "result": None, "type": "unknown",
+                        "hint": f"找不到 '{q}'，請確認股票代號或公司名稱"})
+    return jsonify({"error": "請提供 symbol= 或 name= 或 q= 查詢參數"}), 400
 
 
 @app.route("/api/options")

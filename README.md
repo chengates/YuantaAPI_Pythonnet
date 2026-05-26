@@ -137,3 +137,6 @@ python claude_agent_runtime.py --model sonnet
 - 本專案僅供學術研究與個人分析使用
 - 交易功能需透過元大證券正式開戶取得 API 權限
 - DLL 元件版權屬元大證券所有
+
+## 安全性和隱私問題
+- [ ]檢查程式內,帳號/身分證號/密碼,個別存在json 並且不可上傳,真實環境測試時,加密存於本地localstorage 或綁定人臉或指紋
