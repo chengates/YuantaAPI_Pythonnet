@@ -467,41 +467,46 @@ from System.Collections.Generic import List # pyright: ignore[reportMissingImpor
 import System # type: ignore
 
 #login_in
-#登入
+#登入回應
 def login_out_response(abyData):
     dataGetter = YuantaDataHelper(enumLangType.NORMAL)
     dataGetter.OutMsgLoad(abyData)
 
     result = ''
-    
+
     try:
         #abyMsgCode訊息代碼
-        strMsgCode = dataGetter.GetStr(5) 
+        strMsgCode = dataGetter.GetStr(5)
         #abyMsgContent中文訊息
-        strMsgContent = dataGetter.GetStr(50) 
+        strMsgContent = dataGetter.GetStr(50)
         #uintCount筆數
-        intCount = dataGetter.GetUInt() 
+        intCount = dataGetter.GetUInt()
 
-        if strMsgCode == '0001' or strMsgCode == '00001':
+        # 成功碼: '0001' (UAT) 或 '00001' (PROD)
+        if strMsgCode in ('0001', '00001'):
             SUBSCRIPTION_STATE['login_status'] = True
-            result += '帳號筆數: ' + str(intCount) + '\r\n'
+            result += f'登入成功 ({strMsgContent.strip()}) 帳號筆數: {intCount}\r\n'
 
             for _ in range(intCount):
                 #abyAccount帳號
-                result += dataGetter.GetStr(22) + ',' 
+                acct_id = dataGetter.GetStr(22)
                 #abyName客戶姓名
-                result += dataGetter.GetStr(12) + ',' 
+                acct_name = dataGetter.GetStr(12)
                 #abyInvestorID身分證字號
-                result += dataGetter.GetStr(14) + ',' 
+                investor_id = dataGetter.GetStr(14)
                 #shtSellerNo營業員代碼
-                shtSellNo = dataGetter.GetShort() 
-                result += str(shtSellNo)
-                print('login_out_response:',result)
-                result += '\r\n'
-                
+                shtSellNo = dataGetter.GetShort()
+                result += f'  帳號:{acct_id} 姓名:{acct_name} 營業員:{shtSellNo}\r\n'
+                print(f'[{dt.datetime.now()}] 登入成功: {acct_id} ({acct_name})')
+        else:
+            SUBSCRIPTION_STATE['login_status'] = False
+            result += f'登入失敗: code={strMsgCode} msg={strMsgContent}\r\n'
+            print(f'[{dt.datetime.now()}] 登入失敗: code={strMsgCode} {strMsgContent}')
 
     except Exception as error:
-        result = error
+        SUBSCRIPTION_STATE['login_status'] = False
+        result = f'login_out_response error: {error}'
+        print(f'[{dt.datetime.now()}] {result}')
 
     return result
 
@@ -2458,12 +2463,17 @@ def objApi_OnResponse(intMark, dwIndex, strIndex, objHandle, objValue):
     elif intMark == 2:
         print(f"[{dt.datetime.now()}] intMark=2 回應沒有 result，strIndex={strIndex}")
 
-# Open
+# Open — 從 accountEnv.json 讀取 server 欄位 (UAT=測試, PROD=正式)
 def open_api(yuanta):
     cfg = _load_account_config()
     server = cfg.get("server", "UAT").upper()
+    valid_servers = ['UAT', 'PROD']
+    if server not in valid_servers:
+        print(f"[{dt.datetime.now()}] ⚠ 未知伺服器 '{server}'，降級為 UAT (可用: {valid_servers})")
+        server = 'UAT'
     mode = getattr(enumEnvironmentMode, server, enumEnvironmentMode.UAT)
-    print(f"[{dt.datetime.now()}] 選擇伺服器: {server}")
+    label = '正式環境 PROD' if server == 'PROD' else '測試環境 UAT'
+    print(f"[{dt.datetime.now()}] 連線伺服器: {label}")
     yuanta.Open(mode)
     time.sleep(3)
 
@@ -2476,9 +2486,18 @@ def _load_account_config():
     return {"server": "UAT", "accounts": []}
 
 def get_active_accounts():
-    """從 accountEnv.json 讀取帳號清單，回傳 [{"stock": [id,pwd], "futures": [id,pwd]}, ...]"""
+    """從 accountEnv.json 讀取帳號清單。
+    依 server 欄位選擇: UAT → accounts[0], PROD → accounts[1]。
+    回傳 [{"stock": [id,pwd], "futures": [id,pwd]}, ...]"""
     cfg = _load_account_config()
-    return cfg.get("accounts", [])
+    server = cfg.get("server", "UAT").upper()
+    accounts = cfg.get("accounts", [])
+    idx = 1 if server == "PROD" else 0
+    if idx >= len(accounts):
+        print(f"[{dt.datetime.now()}] ⚠ accounts 缺少 index={idx}，降級為 index=0")
+        idx = 0
+    env_entry = accounts[idx] if idx < len(accounts) else {}
+    return env_entry.get("users", [])
 
 # Login
 def login_api(yuanta):
