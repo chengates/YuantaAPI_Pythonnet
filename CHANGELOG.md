@@ -1,5 +1,26 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
 
+## [2026-05-26]
+
+### Fixed
+- **5-tick field order**: `SubscribeFiveTick_out` 解析順序修正為 買價→買量→賣價→賣量（與 IronPython API spec 一致），先前價格/數量互換導致資料錯誤
+- **Watchlist OHLC overwrite**: `update_watchlist_all` 不再覆蓋五檔推斷的 OHLC（byTemp 29 的 deal_price 尺度與五檔不同，覆蓋會導致價格變為原始整數）
+- **Dictionary iteration crash**: `show()` 5 處迭代 `SUBSCRIPTION_STATE['stocks']` 改用 `list()` 快照，防止背景回呼新增股票時觸發 `dictionary changed size during iteration`
+- **Watchlist single-value overwrite**: byTemp 22/28 不再以單點買賣覆蓋五檔五層陣列
+- **14:30 CSV save**: `matching→closed` 轉換時強制寫入最後一筆 CSV 再寫日總結
+
+### Added
+- **update_stock_names.py**: 從 TWSE/TPEx 公開資料自動抓取全台股名對照，`stock_names.json` 從 10 筆擴充至 1979 筆
+- **Server selection**: `open_api()` 從 `accountEnv.json` 讀取 `server` 欄位（UAT/PROD）
+- **Account config**: `login_api()` 改從 `accountEnv.json` 讀取帳號，支援多組現貨/期貨帳號
+
+### Security
+- 帳密移至 `accountEnv.json`，加入 `.gitignore` 排除上傳
+- 移除 `login_api()` 中的 hardcoded 帳密
+
+### Changed (web_dashboard.py)
+- `_normalize_price()`: 顯示端安全網，價格 >100000 時自動 ÷10000 處理舊 CSV 殘留的原始整數
+
 ## [2026-05-20]
 
 ### Added

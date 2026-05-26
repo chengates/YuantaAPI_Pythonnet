@@ -55,12 +55,12 @@ async def show(data_dict, update_interval: float = 1/60, save_interval: float = 
    - 原第 2485-2489 行的 show 方法 TODO → 已實現
 
 ### 待完成項目 (future enhancements)
-- [ ] 請設計一個獨立tool當已知股票代號,未知公司名稱時,返回公司名,相反的公司名稱時已知,股票代號未知,返回股票代號,首先應用於今早我發現的buglocalhost:5000
-- [ ] 昨日bug UI 資料不正確localhost:5000,今早依舊有問題,元大回復
-- 目前判斷問題應出在程式端資料解析或 UI 顯示邏輯，建議您可檢視以下幾點：
-- 1.           OnResponse 回調處理：確認 intMark == 2 的訂閱資料是否有正確路由至對應的解析函式
-- 2.           資料解析順序：確認 GetInt()、GetByte() 等欄位讀取順序與 IO Spec 完全一致，若中間有欄位讀取錯誤會導致後續所有數值偏移
-- 3.           UI 更新邏輯：確認畫面刷新時是否有資料覆蓋的問題
+- [x] 請設計一個獨立tool當已知股票代號,未知公司名稱時,返回公司名 → `update_stock_names.py` (2026-05-26 完成)
+- [x] 昨日bug UI 資料不正確localhost:5000 → 五檔欄位順序修正 + watchlist 不覆蓋 OHLC + dict iteration crash 修復 (2026-05-26)
+- 元大回覆診斷項目 (2026-05-26 全數確認並修正):
+- 1. [x] OnResponse 回調處理：五檔欄位順序已修正（買價→買量→賣價→賣量）
+- 2. [x] 資料解析順序：GetInt() 讀取順序現與 IO Spec 一致
+- 3. [x] UI 更新邏輯：watchlist 不再覆蓋五檔 OHLC、byTemp 22/28 不再覆蓋五檔陣列
 - 另外也建議您改用正式環境（PROD）進行測試，測試環境（UAT）資料可能不完整或有延遲，建議以正式環境的資料為準。 
 - [ ] 實現其他訂閱回應 (Watchlist、StockTick 等) 的字典格式
 - [ ] 完善大戶/散戶佔比分析算法
