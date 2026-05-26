@@ -141,7 +141,8 @@ function tag(label){
 const cards={};
 function cardHTML(s){
   if(s.close_price==null) return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span></h2><div class="row muted">等待資料...</div>`;
-  const cls=s.close_price>=s.open_price?'up':'down';
+  const ref=s.ref_price!=null?s.ref_price:s.open_price;
+  const cls=ref!=null?(s.close_price>=ref?'up':'down'):'';
   const limitCls=s.limit_state==='up'?' limit-up':s.limit_state==='down'?' limit-down':'';
   const limitLabel=s.limit_state==='up'?' 漲停':s.limit_state==='down'?' 跌停':'';
   const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
@@ -299,6 +300,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "timestamp": row.get("timestamp", ""),
             "participation_score": participation_score,
             "participation_label": participation_label if participation_label not in ("", "N/A", "等待資料") else "等待資料",
+            "ref_price": _get_ref_price(stock_id, open_price),
             "limit_state": _calc_limit_state(close_price, stock_id),
         }
     except Exception:
@@ -327,18 +329,49 @@ def _load_stock_ref() -> dict:
         return {}
 
 
+def _get_ref_price(stock_id: str, fallback_open=None):
+    """取得漲跌顏色基準價（昨收價），含多重降級。
+    優先: stock_ref.json (API) → @stockID.csv → open_price。"""
+    # 1) API 查詢的昨收價
+    ref = _load_stock_ref()
+    entry = ref.get(stock_id, {})
+    yst = _normalize_price(entry.get("yst_price"))
+    if yst is not None:
+        return yst
+    # 2) @stockID.csv 最後一筆 close_price
+    path = f"@{stock_id}.csv"
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                rows = list(csv.DictReader(f))
+            if rows:
+                yst = _normalize_price(_num(rows[-1], "close_price"))
+                if yst is not None:
+                    return yst
+        except Exception:
+            pass
+    # 3) 今日開盤價
+    return fallback_open
+
+
 def _get_limit_prices(stock_id: str):
-    """從 stock_ref.json 取得漲停價/跌停價 (API 回傳值，已正規化)。
+    """從 stock_ref.json 取得漲停價/跌停價。若無 API 資料則以昨收價推算。
     回傳 (up_price, down_price) 或 (None, None)。"""
     ref = _load_stock_ref()
     entry = ref.get(stock_id, {})
     up_price = _normalize_price(entry.get("up_price"))
     down_price = _normalize_price(entry.get("down_price"))
-    return up_price, down_price
+    if up_price is not None and down_price is not None:
+        return up_price, down_price
+    # 降級: 用昨收價 * 1.10 / 0.90 推算
+    yst = _get_ref_price(stock_id)
+    if yst is not None and yst > 0:
+        return round(yst * 1.10, 2), round(yst * 0.90, 2)
+    return None, None
 
 
 def _calc_limit_state(close_price, stock_id):
-    """判斷是否漲跌停。使用 API 回傳的漲停價/跌停價。"""
+    """判斷是否漲跌停。"""
     if close_price is None:
         return None
     up_price, down_price = _get_limit_prices(stock_id)
@@ -459,7 +492,7 @@ def _empty_card(stock_id: str) -> dict:
             "participation_label": "等待資料",
             "buy_prices": [], "buy_volumes": [], "sell_prices": [], "sell_volumes": [],
             "buy_total_volume": 0, "sell_total_volume": 0, "buy_sell_imbalance": 0,
-            "limit_state": None}
+            "ref_price": None, "limit_state": None}
 
 
 @app.route("/")
