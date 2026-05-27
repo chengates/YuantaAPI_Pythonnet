@@ -3180,10 +3180,20 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     """
     異步顯示訂閱回應資訊，含市場排程控制。
     09:00-13:25: 正常每 5 秒保存
-    13:25-13:30: 最後一次 CSV 保存
-    13:30-14:30: 盤後搓合，暫停 CSV 輸出
-    14:30 後:   寫入日總結 @stock_id.csv 後停止
+    13:25-13:30: 最後一次 CSV 保存 (trading→matching 轉換)
+    13:30-14:30: 盤後搓合，僅在數據變更時寫入 CSV
+    14:30 後:   寫入日總結 @stockID.csv，暫停 CSV 輸出，保持進程存活供 dashboard 讀取
+
+    API 優先機制: 啟動時建立 .api_active 標記檔，模擬器檢測到後自動暫停。
     """
+    API_FLAG = ".api_active"
+    # 建立 API active 標記，通知模擬器暫停
+    try:
+        with open(API_FLAG, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        print(f"[{dt.datetime.now()}] .api_active 已建立 (PID {os.getpid()})")
+    except Exception as e:
+        print(f"[{dt.datetime.now()}] 無法建立 .api_active: {e}")
     if not SUBSCRIPTION_STATE.get('login_status', False):
         print(f"[{dt.datetime.now()}] show() 登入狀態未確認，跳過執行")
         return []
@@ -3193,6 +3203,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     last_subscribe_time = time.time()
     prev_phase = _market_phase()
     global _daily_summary_written
+    _csv_frozen = False  # 14:30 後凍結 CSV 寫入
 
     try:
         if 'objYuantaOneAPI' in globals():
@@ -3206,30 +3217,38 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
             current_time = time.time()
             phase = _market_phase()
 
-            # ---- 盤後搓合結束 → 先做最後一次 CSV 保存, 再寫日總結並停止 ----
+            # ---- 14:30 後: 寫入日總結，凍結 CSV，保持進程存活 ----
             if phase == 'closed':
-                # 14:30 強制寫入最後一筆 CSV (matching→closed)
-                saved_count = 0
-                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
-                    record = state.build_save_record() if isinstance(state, StockQuoteState) else state
-                    if not record or not record.get('stock_id'):
-                        continue
-                    if not state.has_trade_activity():
-                        continue
-                    now = dt.datetime.now()
-                    record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
-                    saved_records.append(record)
-                    await _save_to_csv_async(stock_id, record)
-                    saved_count += 1
-                    state.last_saved_timestamp = state.latest_timestamp
-                if saved_count > 0:
-                    print(f"[{dt.datetime.now()}] 14:30 強制寫入最後一筆 CSV: {saved_count} 筆")
-                for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
-                    if stock_id not in _daily_summary_written:
-                        _write_daily_summary(stock_id, state)
-                        _daily_summary_written.add(stock_id)
-                print(f"[{dt.datetime.now()}] 收盤完成，CSV 輸出停止")
-                break
+                if not _csv_frozen:
+                    # 14:30 強制寫入最後一筆 CSV
+                    saved_count = 0
+                    for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
+                        record = state.build_save_record() if isinstance(state, StockQuoteState) else state
+                        if not record or not record.get('stock_id'):
+                            continue
+                        if not state.has_trade_activity():
+                            continue
+                        now = dt.datetime.now()
+                        record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
+                        saved_records.append(record)
+                        await _save_to_csv_async(stock_id, record)
+                        saved_count += 1
+                        state.last_saved_timestamp = state.latest_timestamp
+                    if saved_count > 0:
+                        print(f"[{dt.datetime.now()}] 14:30 強制寫入最後一筆 CSV: {saved_count} 筆")
+                    # 寫入日總結
+                    for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
+                        if stock_id not in _daily_summary_written:
+                            _write_daily_summary(stock_id, state)
+                            _daily_summary_written.add(stock_id)
+                    print(f"[{dt.datetime.now()}] 收盤完成，CSV 輸出凍結 (進程保持存活供 dashboard 讀取)")
+                    _csv_frozen = True
+                # 繼續循環但不寫 CSV，只更新顯示
+                for state in list(SUBSCRIPTION_STATE['stocks'].values()):
+                    _display_quote_info(state)
+                await asyncio.sleep(update_interval)
+                prev_phase = phase
+                continue
 
             # ---- 13:30 強制寫入最後一筆 CSV (交易→盤後搓合轉換) ----
             if prev_phase == 'trading' and phase == 'matching':
@@ -3263,8 +3282,9 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
-            # ---- 交易時段才保存 CSV (matching 期間暫停) ----
-            if phase == 'trading' and not subscribe_triggered and current_time - last_save_time >= save_interval:
+            # ---- 交易時段正常保存; matching 期間僅在有變更時保存 ----
+            csv_phase_ok = phase == 'trading' or (phase == 'matching' and not _csv_frozen)
+            if csv_phase_ok and not subscribe_triggered and current_time - last_save_time >= save_interval:
                 print(f"[{dt.datetime.now()}] 開始保存數據... (phase={phase})")
                 saved_count = 0
                 for stock_id, state in list(SUBSCRIPTION_STATE['stocks'].items()):
@@ -3299,6 +3319,14 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
         print("\n訂閱監控已停止")
     except Exception as e:
         print(f"show 方法出現錯誤: {e}")
+    finally:
+        # 清理 API active 標記
+        try:
+            if os.path.exists(API_FLAG):
+                os.remove(API_FLAG)
+                print(f"[{dt.datetime.now()}] .api_active 已清除")
+        except Exception as e:
+            print(f"[{dt.datetime.now()}] 清除 .api_active 失敗: {e}")
 
     return saved_records
 

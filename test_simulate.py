@@ -1,6 +1,9 @@
 """Test simulator — 模擬報價數據寫入 CSV 供 dashboard 驗證。
 Usage: python test_simulate.py [--stocks 2330,2317,2344] [--interval 5] [--once]
   若未指定 --stocks，自動從 watchlist.json 讀取所有自選股。
+
+  API 優先: 若偵測到 .api_active 標記檔，模擬器自動暫停寫入，
+  等到 API 中斷連線（標記檔消失）後恢復寫入。
 """
 import argparse
 import csv
@@ -11,8 +14,13 @@ import random
 import time
 from datetime import datetime
 
-BASE_PRICES = {"2330": 970.0, "2317": 172.0, "2344": 16.0, "2454": 1245.0,
-               "2412": 126.0, "2881": 92.0, "2882": 75.0, "9907": 25.0}
+API_FLAG = ".api_active"
+API_CHECK_INTERVAL = 5  # 每 N 秒檢查一次 API 是否 active
+
+BASE_PRICES = {"2330": 2315.0, "2317": 264.5, "2344": 155.0, "2454": 1245.0,
+               "2412": 126.0, "2881": 92.0, "2882": 75.0, "9907": 25.0,
+               "2356": 62.0, "2609": 52.6, "2610": 18.45, "6122": 46.85,
+               "6123": 43.05, "8936": 50.0}
 DEFAULT_INTERVAL = 5
 
 
@@ -106,42 +114,58 @@ def simulate():
     ]
 
     prices = {s: BASE_PRICES.get(s, 100.0) for s in stocks}
-    iter_count = 0
-    daily_written = set()
-
-    def market_phase():
-        t = datetime.now().hour * 60 + datetime.now().minute
-        if t < 9 * 60: return 'pre_open'
-        if t < 13 * 60 + 30: return 'trading'
-        if t < 14 * 60 + 30: return 'matching'
-        return 'closed'
+    # 開盤價、最高價、最低價 — 全天固定/累積
+    open_prices = {}   # 開盤價: 只在啟動時設定一次
+    high_prices = {}   # 最高價: 累積更新
+    low_prices = {}    # 最低價: 累積更新
 
     print(f"模擬寫入啟動: {stocks} / 每 {args.interval}s / Ctrl+C 停止")
     print(f"Dashboard: http://localhost:5000")
 
+    last_api_check = 0
+    api_paused = False
+
     while True:
-        phase = market_phase()
-        if phase == 'closed':
-            for sid in stocks:
-                if sid not in daily_written:
-                    _write_daily_summary(sid)
-                    daily_written.add(sid)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] 收盤 — 模擬結束")
-            break
+        # ---- API 優先: 若 UAT 送來信號，模擬器暫停寫入 ----
+        now_ts = time.time()
+        if now_ts - last_api_check >= API_CHECK_INTERVAL:
+            last_api_check = now_ts
+            if os.path.exists(API_FLAG):
+                if not api_paused:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] API 信號 active，模擬器暫停寫入")
+                    api_paused = True
+                time.sleep(args.interval)
+                continue
+            else:
+                if api_paused:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] API 信號消失，模擬器恢復寫入")
+                    api_paused = False
 
         for stock_id in stocks:
-            if phase == 'matching':
-                continue  # 盤後搓合暫停寫入
             filename = f"{stock_id}.csv"
             _ensure_headers(filename, fieldnames)
 
-            base = prices[stock_id]
-            change_pct = random.gauss(0, 0.005)
-            close = round(base * (1 + change_pct), 2)
-            spread = abs(close * random.uniform(0.002, 0.008))
-            high = round(close + spread, 2)
-            low = round(close - spread, 2)
-            open_price = round(random.uniform(low, high), 2)
+            prev = prices[stock_id]
+            base_price = BASE_PRICES.get(stock_id, 100.0)
+            # 均值回歸隨機漫步: 小雜訊 + 微弱拉回基準價，模擬真實盤中走勢
+            noise = random.gauss(0, 0.0003)          # ±0.03% per tick
+            reversion = (base_price - prev) / base_price * 0.005  # 0.5% 回歸拉力
+            change_pct = noise + reversion
+            close = round(prev * (1 + change_pct), 2)
+
+            # 開盤價: 全天只在第一筆設定，之後固定不變
+            if stock_id not in open_prices:
+                open_prices[stock_id] = close
+                high_prices[stock_id] = close
+                low_prices[stock_id] = close
+            open_price = open_prices[stock_id]
+
+            # 最高/最低: 累積更新
+            if close > high_prices[stock_id]:
+                high_prices[stock_id] = close
+            if close < low_prices[stock_id]:
+                low_prices[stock_id] = close
+
             volume = int(random.uniform(50000, 500000))
             in_vol = int(volume * random.uniform(0.4, 0.6))
             out_vol = volume - in_vol
@@ -167,8 +191,8 @@ def simulate():
                 "deal_volume": volume,
                 "deal_amount": round(close * volume, 0),
                 "open_price": open_price,
-                "high_price": high,
-                "low_price": low,
+                "high_price": high_prices[stock_id],
+                "low_price": low_prices[stock_id],
                 "close_price": close,
                 "price_diff": round(close - open_price, 2),
                 "trade_count": random.randint(100, 2000),
@@ -180,9 +204,9 @@ def simulate():
                 "sell_total_volume": random.randint(10000, 100000),
                 "buy_sell_imbalance": random.randint(-5000, 5000),
                 "buy_sell_pressure": round(random.uniform(-10, 10), 2),
-                "buy_prices": str([round(close - i * spread / 5, 2) for i in range(5)]),
+                "buy_prices": str([round(close * (1 - 0.001 * i), 2) for i in range(5)]),
                 "buy_volumes": str([random.randint(1000, 5000) for _ in range(5)]),
-                "sell_prices": str([round(close + i * spread / 5, 2) for i in range(5)]),
+                "sell_prices": str([round(close * (1 + 0.001 * i), 2) for i in range(5)]),
                 "sell_volumes": str([random.randint(1000, 5000) for _ in range(5)]),
                 "ma5": round(close * random.uniform(0.98, 1.02), 2),
                 "ma10": round(close * random.uniform(0.95, 1.05), 2),
@@ -200,7 +224,6 @@ def simulate():
 
             print(f"[{now.strftime('%H:%M:%S')}] {stock_id}: {close} vol={volume} {label}")
 
-        iter_count += 1
         if args.once:
             print("--once: done")
             break

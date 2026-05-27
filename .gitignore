@@ -21,6 +21,8 @@ build/
 *.csv
 !yesterday/*.csv
 stock_ref.json
+.api_active
+.dashboard_pid
 
 # Credentials
 accountEnv.json
