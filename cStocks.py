@@ -9,8 +9,6 @@ from matplotlib.lines import Line2D
 from PIL import Image, ImageDraw, ImageFont
 import os
 import json
-import collections
-
 # ── 1. Emoji 渲染與字體設定 ──────────────────────────────────────
 def make_emoji_img(text: str, size: int = 48) -> np.ndarray:
     w = size * max(len(text), 1)
@@ -47,6 +45,12 @@ class StockPalette:
         #灰色: #57606a 
         self.gray, self.grey = "#57606a88" ,"#57606a"
         self.ma5, self.ma20 = "#B71C1CAA", "#1B5E20AA"
+        if mode == "Dark":
+            self.bb_line, self.bb_fill = "#64B5F6", "#1976D2"
+            self.bb_fill_alpha = 0.18
+        else:
+            self.bb_line, self.bb_fill = "#1565C0", "#42A5F5"
+            self.bb_fill_alpha = 0.14
 
 # ── 3. 基礎類別 (BasicUnit) ──────────────────────────────────────
 class BasicUnit:
@@ -63,6 +67,17 @@ class BasicUnit:
         self.MA_VOL_PERIOD = 5
         self.VOL_LARGE_RATIO = 1.5
         self.VOL_SMALL_RATIO = 0.618
+        self.SR_MIN_GAP_RATIO = 0.04   # 同側兩條 S 或 R 的最小價格間距（× 可視區高低差）
+        self.SR_PEAK_RADIUS = 2        # 量能峰鄰域半徑（格數）
+        self.SR_SWING_WINDOW = 5       # 波段高低點視窗（根 K）
+        self.show_bollinger = True     # 布林通道預設開啟
+        self.ma_short_period = 5       # 短均線週期（最長 240）
+        self.ma_long_period = 20       # 長均線／布林基準週期
+        self.vol_ma_short = 5
+        self.vol_ma_long = 20
+        self.TICK_INTERVAL_AUTO = True # True 時依 n_days 自動密度
+        self.N_DAYS_MIN = 10           # X 縮放最少顯示 K 線根數
+        self.N_DAYS_ZOOM_RATIO = 0.12  # 每次縮放步進（佔目前 n_days 比例）
         self.unitIndex = 5  #可視區的預設單位=5,這部分要配合csv資料輸入單位加以調整,ex:想辦法轉成min:code1分K.csv
         self.units = ["1分K","5分K","15分K","30分K","60分K","日K","周K","月K"]
 
@@ -117,6 +132,64 @@ class cStock(BasicUnit):
         self.draw_artists = []         # 對應的 matplotlib artist
         self.selected_obj = None       # 被選中要移動的物件 index
         self.drag_offset  = (0, 0)     # 拖曳偏移量
+        self.k_y_zoom = 1.0            # 價格 Y 縮放（1=自動貼合可視區）
+        self.k_y_center = None         # 手動 Y 縮放時的中心價
+
+    def _settings_path(self):
+        return f"{self.code}_settings.json"
+
+    def load_settings(self):
+        path = self._settings_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return
+        unit_map = {"1T": 0, "5T": 1, "15T": 2, "30T": 3, "60T": 4, "D": 5, "W-FRI": 6, "ME": 7}
+        if "unit" in cfg:
+            self.unit = cfg["unit"]
+            self.unitIndex = unit_map.get(self.unit, self.unitIndex)
+        for key in ("n_days", "TICK_INTERVAL", "show_bollinger", "ma_short_period",
+                    "ma_long_period", "vol_ma_short", "vol_ma_long"):
+            if key in cfg:
+                setattr(self, key, cfg[key])
+        if "TICK_INTERVAL_AUTO" in cfg:
+            self.TICK_INTERVAL_AUTO = bool(cfg["TICK_INTERVAL_AUTO"])
+        if "style" in cfg:
+            self.palette = StockPalette(mode=cfg["style"])
+        self.ma_short_period = max(2, min(240, int(self.ma_short_period)))
+        self.ma_long_period = max(self.ma_short_period + 1, min(240, int(self.ma_long_period)))
+        if "start_idx" in cfg:
+            self._pending_start_idx = int(cfg["start_idx"])
+        # RGBA 調色覆蓋
+        for key in ("ma_s_color", "ma_l_color", "bb_color", "rise_color", "fall_color"):
+            if key in cfg:
+                setattr(self.palette, key, cfg[key])
+
+    def save_settings(self):
+        cfg = {
+            "unit": self.unit,
+            "n_days": self.n_days,
+            "start_idx": self.start_idx,
+            "TICK_INTERVAL": self.TICK_INTERVAL,
+            "TICK_INTERVAL_AUTO": self.TICK_INTERVAL_AUTO,
+            "show_bollinger": self.show_bollinger,
+            "ma_short_period": self.ma_short_period,
+            "ma_long_period": self.ma_long_period,
+            "vol_ma_short": self.vol_ma_short,
+            "vol_ma_long": self.vol_ma_long,
+            "style": "Dark" if self.palette.bg == "#121212" else "Light",
+            "ma_s_color": getattr(self.palette, 'ma_s_color', self.palette.ma5),
+            "ma_l_color": getattr(self.palette, 'ma_l_color', self.palette.ma20),
+            "bb_color": getattr(self.palette, 'bb_color', self.palette.bb_line),
+            "rise_color": getattr(self.palette, 'rise_color', self.palette.rise),
+            "fall_color": getattr(self.palette, 'fall_color', self.palette.fall),
+        }
+        with open(self._settings_path(), "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        print(f"[cStocks] 設定已儲存: {os.path.abspath(self._settings_path())}")
 
     def load_data(self, csv_file, n_days=60):
         full_df = pd.read_csv(csv_file)
@@ -126,6 +199,7 @@ class cStock(BasicUnit):
         for col in cols: full_df[col] = pd.to_numeric(full_df[col], errors="coerce")
         self.df_raw = full_df.dropna(subset=["收盤價"]).sort_values("日期").copy()
         self.n_days = n_days
+        self.load_settings()
         self.refresh_period_data()
 
     def refresh_period_data(self):
@@ -135,7 +209,13 @@ class cStock(BasicUnit):
             df = df.resample(self.unit).apply(agg).dropna()
         self.df_all = df.reset_index()
         self.calculate_indicators()
-        self.start_idx = max(0, len(self.df_all) - self.n_days)
+        max_n = len(self.df_all)
+        pending = getattr(self, "_pending_start_idx", None)
+        if pending is not None:
+            self.start_idx = max(0, min(pending, max(0, max_n - self.n_days)))
+            self._pending_start_idx = None
+        else:
+            self.start_idx = max(0, max_n - self.n_days)
         self._sr_dirty = True
 
     def calculate_indicators(self):
@@ -150,18 +230,131 @@ class cStock(BasicUnit):
         rsv = (df["收盤價"] - low9) / (high9 - low9) * 100
         df["K"], df["D"] = rsv.ewm(com=2).mean(), rsv.ewm(com=2).mean().ewm(com=2).mean()
         df["J"] = 3 * df["K"] - 2 * df["D"]
-        # MA5 &MA20 Bollinger & 籌碼 [360, Conversation History]
-        df["ma5"], df["ma20"] = df["收盤價"].rolling(5).mean(), df["收盤價"].rolling(20).mean()
-        std = df["收盤價"].rolling(20).std()
-        #Bollinger
-        df["ub"], df["lb"] = df["ma20"] + 2*std, df["ma20"] - 2*std
+        s, l = self.ma_short_period, self.ma_long_period
+        close = df["收盤價"]
+        df["ma_s"] = close.rolling(s).mean()
+        df["ma_l"] = close.rolling(l).mean()
+        df["ma5"], df["ma20"] = df["ma_s"], df["ma_l"]
+        std = close.rolling(l).std()
+        df["ub"], df["lb"] = df["ma_l"] + 2 * std, df["ma_l"] - 2 * std
         df["均價"], df["每筆均量"] = df["成交金額"] / df["成交股數"], df["成交股數"] / df["成交筆數"]
-        #ma5
-        df["每筆均量_ma5"] = df["每筆均量"].rolling(5).mean()
-        df["vol_ma5"] = (df["成交股數"]/1000).rolling(5).mean()
+        df["每筆均量_ma5"] = df["每筆均量"].rolling(self.vol_ma_short).mean()
+        vol_k = df["成交股數"]
+        df["vol_ma5"] = vol_k.rolling(self.vol_ma_short).mean()
+        df["vol_ma20"] = vol_k.rolling(self.vol_ma_long).mean()
+        self._est_vol = self._estimate_today_volume()
+
+    def _estimate_today_volume(self):
+        """估算今日全市場成交量（僅最新一筆為今日時有效，台股 09:00–13:30）"""
+        if self.df_all is None or len(self.df_all) == 0:
+            return None
+        last_date = self.df_all.iloc[-1]['日期']
+        now = pd.Timestamp.now()
+        if last_date.date() != now.date():
+            return None
+        market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
+        if now < market_open:
+            return None
+        if now >= market_close:
+            return float(self.df_all.iloc[-1]['成交股數'])
+        elapsed = max((now - market_open).total_seconds() / 60, 1)
+        ratio = 270.0 / elapsed
+        return float(self.df_all.iloc[-1]['成交股數']) * ratio
+
+    def _merge_sr_candidates(self, *pools):
+        """合併多來源候選，同價位加總量能。"""
+        merged = {}
+        for pool in pools:
+            for vol, price in pool:
+                key = round(float(price), 4)
+                merged[key] = merged.get(key, 0.0) + float(vol)
+        return sorted(((v, p) for p, v in merged.items()), key=lambda x: -x[0])
+
+    def _volume_profile_candidates(self, df, price_min, price_max):
+        """可視區成交量分布的 local peak。"""
+        price_range = price_max - price_min
+        if price_range <= 0:
+            return []
+        n_bins = max(40, min(80, len(df) * 2))
+        bin_size = price_range / n_bins
+        bins = np.zeros(n_bins)
+        r = self.SR_PEAK_RADIUS
+        for _, row in df.iterrows():
+            vol = row["成交股數"]
+            lo = int((row["最低價"] - price_min) / bin_size)
+            hi = int((row["最高價"] - price_min) / bin_size)
+            lo, hi = max(0, min(lo, n_bins - 1)), max(0, min(hi, n_bins - 1))
+            span = max(hi - lo + 1, 1)
+            for b in range(lo, hi + 1):
+                bins[b] += vol / span
+        out = []
+        for b in range(r, n_bins - r):
+            if bins[b] <= 0:
+                continue
+            if all(bins[b] >= bins[b + d] for d in range(-r, r + 1) if d != 0):
+                out.append((bins[b], price_min + (b + 0.5) * bin_size))
+        return out
+
+    def _swing_sr_candidates(self, df, current_close):
+        """波段低點→支撐候選、波段高點→壓力候選（附該根 K 成交量）。"""
+        w = self.SR_SWING_WINDOW
+        lows, highs = [], []
+        if len(df) < w * 2 + 1:
+            return lows, highs
+        lo_vals = df["最低價"].values
+        hi_vals = df["最高價"].values
+        vols = df["成交股數"].values
+        for i in range(w, len(df) - w):
+            seg_lo = lo_vals[i - w : i + w + 1]
+            seg_hi = hi_vals[i - w : i + w + 1]
+            v = float(vols[i])
+            p_lo, p_hi = float(lo_vals[i]), float(hi_vals[i])
+            if p_lo == seg_lo.min() and p_lo < current_close * 0.999:
+                lows.append((v, p_lo))
+            if p_hi == seg_hi.max() and p_hi > current_close * 1.001:
+                highs.append((v, p_hi))
+        return lows, highs
+
+    def _pick_spaced_sr_levels(self, candidates, current_close, side, price_range, max_lines=2):
+        """收盤下方只出支撐、上方只出壓力；同側最多 max_lines 條且強制間距。"""
+        min_gap = max(price_range * self.SR_MIN_GAP_RATIO, current_close * 0.012)
+        if side == "support":
+            pool = [(v, p) for v, p in candidates if p < current_close * 0.999]
+            pool.sort(key=lambda x: (-x[0], -x[1]))
+        else:
+            pool = [(v, p) for v, p in candidates if p > current_close * 1.001]
+            pool.sort(key=lambda x: (-x[0], x[1]))
+        selected = []
+        for _, price in pool:
+            if any(abs(price - s) < min_gap for s in selected):
+                continue
+            selected.append(price)
+            if len(selected) >= max_lines:
+                break
+        return sorted(selected, reverse=True) if side == "support" else sorted(selected)
+
+    def _sr_fallback_levels(self, df, current_close, price_min, price_max, side, price_range):
+        """量能峰不足時，以可視區極值／近期波段補一條。"""
+        recent = df.tail(min(20, len(df)))
+        if side == "support":
+            below = df[df["最低價"] < current_close * 0.999]
+            if below.empty:
+                return []
+            p = float(below["最低價"].min())
+            if recent["最低價"].min() < current_close:
+                p = min(p, float(recent["最低價"].min()))
+            return [p] if p < current_close * 0.999 else []
+        above = df[df["最高價"] > current_close * 1.001]
+        if above.empty:
+            return []
+        p = float(above["最高價"].max())
+        if recent["最高價"].max() > current_close:
+            p = max(p, float(recent["最高價"].max()))
+        return [p] if p > current_close * 1.001 else []
 
     def _calc_support_resistance(self):
-        """成交量加權支撐/壓力線，結果透過 _sr_cache / _sr_dirty 快取。"""
+        """支撐＝最後收盤下方量能／波段密集區；壓力＝上方。兩側同時計算，不做漲跌單邊過濾。"""
         if not self._sr_dirty:
             return self._sr_cache
 
@@ -170,64 +363,122 @@ class cStock(BasicUnit):
             self._sr_cache = ([], [])
             self._sr_dirty = False
             return self._sr_cache
-            return [], []
 
-        price_min = df["最低價"].min()
-        price_max = df["最高價"].max()
+        price_min = float(df["最低價"].min())
+        price_max = float(df["最高價"].max())
         price_range = price_max - price_min
         if price_range == 0:
-            return [], []
+            self._sr_cache = ([], [])
+            self._sr_dirty = False
+            return self._sr_cache
 
-        N_BINS = 60  # 把價格切成 60 格
-        bin_size = price_range / N_BINS
-        bins = np.zeros(N_BINS)
+        current_close = float(df["收盤價"].iloc[-1])
+        vol_cands = self._volume_profile_candidates(df, price_min, price_max)
+        swing_lows, swing_highs = self._swing_sr_candidates(df, current_close)
 
-        for _, r in df.iterrows():
-            vol = r["成交股數"]
-            # 每根K棒的高低價範圍內所有 bin 加上成交量加權
-            lo_bin = int((r["最低價"] - price_min) / bin_size)
-            hi_bin = int((r["最高價"] - price_min) / bin_size)
-            lo_bin = max(0, min(lo_bin, N_BINS - 1))
-            hi_bin = max(0, min(hi_bin, N_BINS - 1))
-            span = max(hi_bin - lo_bin + 1, 1)
-            for b in range(lo_bin, hi_bin + 1):
-                bins[b] += vol / span  # 按K棒價格範圍平均分配量
+        support_pool = self._merge_sr_candidates(vol_cands, swing_lows)
+        resist_pool = self._merge_sr_candidates(vol_cands, swing_highs)
 
-        # 找 local peak（鄰近 3 格都比它小）
-        candidates = []
-        for b in range(1, N_BINS - 1):
-            if bins[b] >= bins[b-1] and bins[b] >= bins[b+1] and bins[b] > 0:
-                price_level = price_min + (b + 0.5) * bin_size
-                candidates.append((bins[b], price_level))
-        candidates.sort(key=lambda x: -x[0])  # 由大量到小量排序
+        supports = self._pick_spaced_sr_levels(
+            support_pool, current_close, "support", price_range)
+        resistances = self._pick_spaced_sr_levels(
+            resist_pool, current_close, "resistance", price_range)
 
-        current_close = df["收盤價"].iloc[-1]
-        is_rising = current_close >= df["收盤價"].iloc[0]  # 可視區趨勢
+        if not supports:
+            lb = df.iloc[-1].get("lb")
+            if lb is not None and not pd.isna(lb) and float(lb) < current_close * 0.999:
+                supports = [float(lb)]
+            else:
+                supports = self._sr_fallback_levels(
+                    df, current_close, price_min, price_max, "support", price_range)[:1]
+        if not resistances:
+            ub = df.iloc[-1].get("ub")
+            if ub is not None and not pd.isna(ub) and float(ub) > current_close * 1.001:
+                resistances = [float(ub)]
+            else:
+                resistances = self._sr_fallback_levels(
+                    df, current_close, price_min, price_max, "resistance", price_range)[:1]
 
-        supports, resistances = [], []
-        for _, price in candidates:
-            if price < current_close * 0.9995:   # 支撐（低於收盤）
-                # 合併相近的線（距離 < 0.5%）
-                if not any(abs(p - price) / price < 0.005 for p in supports):
-                    supports.append(price)
-            elif price > current_close * 1.0005:  # 壓力（高於收盤）
-                if not any(abs(p - price) / price < 0.005 for p in resistances):
-                    resistances.append(price)
-            if len(supports) >= 2 and len(resistances) >= 2:
-                break
+        supports = [p for p in supports if p < current_close * 0.999]
+        resistances = [p for p in resistances if p > current_close * 1.001]
 
-        # 漲時看撐不看壓，跌時看壓不看撐
-        if is_rising:
-            resistances = []   # 漲勢中壓力線不畫
-        else:
-            supports = []      # 跌勢中支撐線不畫
-
-        # 支撐取最近（最高）2條，壓力取最近（最低）2條
-        supports = sorted(supports, reverse=True)[:2]
-        resistances = sorted(resistances)[:2]
         self._sr_cache = (supports, resistances)
         self._sr_dirty = False
         return self._sr_cache
+
+    def _apply_x_zoom(self, fig, axes, zoom_in):
+        """X 軸縮放：只改 n_days／start_idx，不改週期 unit。右緣（最新 K）盡量固定。"""
+        if self.df_all is None or len(self.df_all) < 2:
+            return
+        max_n = len(self.df_all)
+        step = max(3, int(self.n_days * self.N_DAYS_ZOOM_RATIO))
+        end = self.start_idx + self.n_days
+        if zoom_in:
+            self.n_days = max(self.N_DAYS_MIN, self.n_days - step)
+        else:
+            self.n_days = min(max_n, self.n_days + step)
+        self.start_idx = max(0, min(end - self.n_days, max_n - self.n_days))
+        self.update_view(fig, axes)
+
+    def _effective_tick_interval(self, n):
+        if not self.TICK_INTERVAL_AUTO or n < 2:
+            return max(1, self.TICK_INTERVAL)
+        if n <= 18:
+            return max(1, n // 5)
+        if n <= 35:
+            return 4
+        if n <= 70:
+            return 7
+        if n <= 120:
+            return 10
+        return 14
+
+    def _kline_auto_ylim(self, df):
+        lo = float(df["最低價"].min())
+        hi = float(df["最高價"].max())
+        for col in ("ma_s", "ma_l", "ub", "lb"):
+            if col in df.columns:
+                ser = df[col].dropna()
+                if len(ser):
+                    lo, hi = min(lo, float(ser.min())), max(hi, float(ser.max()))
+        for p in self._sr_cache[0] + self._sr_cache[1]:
+            lo, hi = min(lo, p), max(hi, p)
+        pad = max((hi - lo) * 0.06, hi * 0.002)
+        return lo - pad, hi + pad
+
+    def _apply_k_ylim(self, ax, auto_lo, auto_hi):
+        if self.k_y_zoom <= 1.01 and self.k_y_center is None:
+            ax.set_ylim(auto_lo, auto_hi)
+            return
+        mid = self.k_y_center if self.k_y_center is not None else (auto_lo + auto_hi) / 2
+        half = (auto_hi - auto_lo) / 2 / max(self.k_y_zoom, 0.25)
+        ax.set_ylim(mid - half, mid + half)
+
+    def _apply_y_zoom(self, fig, axes, zoom_in):
+        if zoom_in:
+            self.k_y_zoom = min(self.k_y_zoom * 1.18, 25.0)
+        else:
+            self.k_y_zoom = max(self.k_y_zoom / 1.18, 0.35)
+        if self.df is not None and len(self.df):
+            self.k_y_center = float(self.df["收盤價"].iloc[-1])
+        self.update_view(fig, axes)
+
+    def reset_y_view(self, fig, axes):
+        self.k_y_zoom = 1.0
+        self.k_y_center = None
+        self.update_view(fig, axes)
+
+    def export_png(self, fig, dpi=150):
+        """匯出目前四聯圖為 PNG。"""
+        unit_tag = self.getUnit().replace("/", "")
+        ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        path = f"{self.code}_{unit_tag}_{ts}.png"
+        fig.savefig(
+            path, dpi=dpi, facecolor=fig.get_facecolor(),
+            edgecolor="none", bbox_inches="tight",
+        )
+        print(f"[cStocks] 圖表已儲存: {os.path.abspath(path)}")
+        return path
 
    
     def _draw_kline_panel(self, ax):
@@ -236,9 +487,16 @@ class cStock(BasicUnit):
         n = len(df)
         x = np.arange(n)
 
+        # RGBA 調色覆蓋（取自 settings.json）
+        _rise = getattr(self.palette, 'rise_color', self.palette.rise)
+        _fall = getattr(self.palette, 'fall_color', self.palette.fall)
+        _ma_s = getattr(self.palette, 'ma_s_color', self.palette.ma5)
+        _ma_l = getattr(self.palette, 'ma_l_color', self.palette.ma20)
+        _bb   = getattr(self.palette, 'bb_color', self.palette.bb_line)
+
         # ── 向量化 K 線繪製 (單次 vlines + bar，取代逐根 Rectangle) ──
         is_up = df['收盤價'].values >= df['開盤價'].values
-        wick_colors = np.where(is_up, self.palette.rise, self.palette.fall)
+        wick_colors = np.where(is_up, _rise, _fall)
         self.max = float(df['最高價'].max())
         self.min = float(df['最低價'].min())
 
@@ -251,14 +509,15 @@ class cStock(BasicUnit):
         down_mask = ~is_up
         if up_mask.any():
             ax.bar(x[up_mask], body_height[up_mask], 0.6,
-                   bottom=body_bottom[up_mask], color=self.palette.rise)
+                   bottom=body_bottom[up_mask], color=_rise)
         if down_mask.any():
             ax.bar(x[down_mask], body_height[down_mask], 0.6,
-                   bottom=body_bottom[down_mask], color=self.palette.fall)
+                   bottom=body_bottom[down_mask], color=_fall)
 
         # ── 價格標籤 (刻度 + 極值) ──
+        label_step = self._effective_tick_interval(n)
         tick_mask = np.zeros(n, dtype=bool)
-        tick_mask[::self.TICK_INTERVAL] = True
+        tick_mask[::label_step] = True
         tick_mask[-1] = True
         is_extreme = (df['最高價'].values == self.max) | (df['最低價'].values == self.min)
         extreme_mask = is_extreme & ~tick_mask
@@ -277,13 +536,25 @@ class cStock(BasicUnit):
                         f"{r['收盤價']}\n{r['最低價']}",
                         color=wick_colors[i], fontsize=7, ha='center', va='top')
 
-        # ── 均線與 Bollinger ──
-        ax.plot(x, df["ma5"], color=self.palette.ma5, label="5MA")
-        ax.plot(x, df["ma20"], color=self.palette.ma20, label="20MA")
-        ax.fill_between(x, df["ub"], df["lb"], color='skyblue', alpha=0.05)
+        # ── 均線與 Bollinger（預設開啟）──
+        ax.plot(x, df["ma_s"], color=_ma_s,
+                label=f"{self.ma_short_period}MA")
+        ax.plot(x, df["ma_l"], color=_ma_l,
+                label=f"{self.ma_long_period}MA")
+        if self.show_bollinger:
+            ax.fill_between(
+                x, df["ub"], df["lb"],
+                color=self.palette.bb_fill, alpha=self.palette.bb_fill_alpha,
+                label="Boll帶",
+            )
+            ax.plot(x, df["ub"], color=_bb, lw=1, ls="--",
+                    alpha=0.9, label="Boll上")
+            ax.plot(x, df["lb"], color=_bb, lw=1, ls="--",
+                    alpha=0.9, label="Boll下")
         ax.yaxis.label.set_color(self.palette.grey)
         ax.set_ylabel("價格 (Price)", color=self.palette.grey)
         ax.grid(axis='both', linestyle='--', alpha=0.3)
+        self._apply_k_ylim(ax, *self._kline_auto_ylim(df))
 
         # ── 支撐/壓力線 (快取) ──
         supports, resistances = self._sr_cache
@@ -312,20 +583,26 @@ class cStock(BasicUnit):
         ax.legend(loc="best", fontsize="x-small")
 
     def _draw_volume_panel(self, ax):
-        self.df = self.df_all.iloc[self.start_idx : self.start_idx + self.n_days].reset_index(drop=True)
         vol = self.df['成交股數'] / 1000
         n = len(vol)
+        _rise = getattr(self.palette, 'rise_color', self.palette.rise)
+        _fall = getattr(self.palette, 'fall_color', self.palette.fall)
+        _ma_s = getattr(self.palette, 'ma_s_color', self.palette.ma5)
+        _ma_l = getattr(self.palette, 'ma_l_color', self.palette.ma20)
 
         # ── 向量化色彩：量增紅、量縮綠 ──
         if n >= 2:
             vol_arr = vol.values
-            colors = np.where(vol_arr[1:] >= vol_arr[:-1], self.palette.rise, self.palette.fall)
-            colors = np.append(colors, colors[-1] if len(colors) else self.palette.rise)
+            colors = np.where(vol_arr[1:] >= vol_arr[:-1], _rise, _fall)
+            colors = np.append(colors, colors[-1] if len(colors) else _rise)
         else:
-            colors = [self.palette.rise] * n
+            colors = [_rise] * n
 
         ax.bar(range(n), vol, color=colors, alpha=0.6)
-        ax.plot(self.df["vol_ma5"], color=self.palette.ma5, lw=1, label="5MA均量")
+        ax.plot(self.df["vol_ma5"] / 1000, color=_ma_s, lw=1,
+                label=f"{self.vol_ma_short}MA均量")
+        ax.plot(self.df["vol_ma20"] / 1000, color=_ma_l, lw=1, alpha=0.85,
+                label=f"{self.vol_ma_long}MA均量")
                 
         # ── 智慧 Y 軸：上限取 95 百分位 * 1.2，避免單根大量壓扁全圖
         vol_95 = np.percentile(vol.dropna(), 95)
@@ -386,8 +663,9 @@ class cStock(BasicUnit):
     def update_view(self, fig, axes):
         self.df = self.df_all.iloc[self.start_idx : self.start_idx + self.n_days].reset_index(drop=True)
 
-        # ── 重置快取旗標當可視區變更 ──
+        # ── 可視區變更時重算支撐／壓力 ──
         self._sr_dirty = True
+        self._calc_support_resistance()
 
         self.vlines.clear()
         for ax in axes:
@@ -414,9 +692,14 @@ class cStock(BasicUnit):
         fig.canvas.draw_idle()
 
     def _setup_xticks(self, ax):
-        tick_idx = list(range(0, len(self.df), self.TICK_INTERVAL))
-        if (len(self.df)-1) not in tick_idx: tick_idx.append(len(self.df)-1)
-        #for ax in self.axes:
+        n = len(self.df)
+        step = self._effective_tick_interval(n)
+        tick_idx = list(range(0, n, step))
+        last = n - 1
+        if tick_idx and last - tick_idx[-1] <= max(2, step // 2):
+            tick_idx[-1] = last
+        elif last not in tick_idx:
+            tick_idx.append(last)
         ax.set_xticks(tick_idx)
         ax.set_xticklabels([self.df.iloc[i]['日期'].strftime('%y/%m/%d') for i in tick_idx], rotation=45, fontsize=8, color=self.palette.fg)
         # 3. 設置刻度(ticks)和刻度標籤(labels)顏色為白色colors='white'
@@ -476,26 +759,31 @@ class cStock(BasicUnit):
 
     def _date_to_x(self, date_str):
         """日期字串 → 當前可視區畫面 index（找不到回傳 None）"""
+        if self.df is None or len(self.df) == 0:
+            return None
         try:
             target = pd.to_datetime(date_str).date()
             matches = self.df[self.df['日期'].dt.date == target].index
             if len(matches) > 0:
-                return float(matches[0])
+                result = float(matches[0])
+                return result if 0 <= result < len(self.df) else None
             # 找不到精確日期時，找最近的
             dates = self.df['日期'].dt.date.values
             diffs = [abs((d - target).days) for d in dates]
-            return float(np.argmin(diffs))
+            result = float(np.argmin(diffs))
+            return result if 0 <= result < len(self.df) else None
         except:
             return None
 
     def _obj_to_screen(self, obj):
         """將物件的日期座標轉回當前畫面 index，回傳轉換後的 obj copy（不修改原始）"""
         o = obj.copy()
+        n = len(self.df) if self.df is not None else 0
         for key in ('x1', 'x2', 'x3'):
             dkey = key.replace('x', 'd')  # d1, d2, d3
             if dkey in o:
                 sx = self._date_to_x(o[dkey])
-                if sx is not None:
+                if sx is not None and 0 <= sx < max(n, 1):
                     o[key] = sx
         return o
 
@@ -517,6 +805,13 @@ class cStock(BasicUnit):
         elif t == 'vline':
             line = ax.axvline(x=x1, color=c, lw=1.5, linestyle='-', alpha=0.85, picker=5)
             artists.append(line)
+        elif t == 'note':
+            txt = o.get('text', '')
+            bg = o.get('bg', '#00000088')
+            ann = ax.text(x1, y1, f' {txt}', color=c, fontsize=8, va='center', ha='left',
+                          bbox=dict(boxstyle='round,pad=0.3', facecolor=bg, edgecolor=c, alpha=0.85),
+                          picker=5)
+            artists.append(ann)
         elif t in ('line', 'arrow', 'arrow2'):
             arrowstyle = None
             if t == 'arrow':
@@ -599,6 +894,46 @@ class cStock(BasicUnit):
             artists.extend([l_ref, ann, rect])
         return artists
 
+    @staticmethod
+    def _point_segment_dist(px, py, x1, y1, x2, y2):
+        dx, dy = x2 - x1, y2 - y1
+        if dx == 0 and dy == 0:
+            return ((px - x1) ** 2 + (py - y1) ** 2) ** 0.5
+        t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+        qx, qy = x1 + t * dx, y1 + t * dy
+        return ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5
+
+    def _dist_to_draw_obj(self, obj, x, y):
+        x1, y1 = obj['x1'], obj['y1']
+        x2, y2 = obj.get('x2', x1), obj.get('y2', y1)
+        t = obj['type']
+        if t == 'hline':
+            return abs(y - y1)
+        if t == 'vline':
+            return abs(x - x1)
+        if t == 'note':
+            return ((x - x1) ** 2 + (y - y1) ** 2) ** 0.5
+        if t in ('line', 'arrow', 'arrow2', 'channel', 'rect', 'fib', 'measure'):
+            return self._point_segment_dist(x, y, x1, y1, x2, y2)
+        if t == 'arc' and 'x3' in obj:
+            return min(
+                self._point_segment_dist(x, y, x1, y1, x2, y2),
+                ((x - obj['x3']) ** 2 + (y - obj['y3']) ** 2) ** 0.5,
+            )
+        return ((x - x1) ** 2 + (y - y1) ** 2) ** 0.5
+
+    def _find_nearest_draw_index(self, x, y):
+        n_vis = len(self.df) if self.df is not None else self.n_days
+        thresh = max(5.0, n_vis * 0.07)
+        best, best_d = None, 1e9
+        for i, obj in enumerate(self.draw_objects):
+            if obj.get('unit', self.unit) != self.unit:
+                continue
+            d = self._dist_to_draw_obj(obj, x, y)
+            if d < best_d:
+                best_d, best = d, i
+        return best if best is not None and best_d < thresh else None
+
     def _redraw_drawings(self, ax_k, ax_v):
         """update_view 後把當前週期的繪圖物件重新畫回去（不同週期的物件隱藏保留）"""
         self.draw_artists = []
@@ -607,6 +942,11 @@ class cStock(BasicUnit):
             if obj.get('unit', self.unit) != self.unit:
                 self.draw_artists.append([])  # 佔位，保持 index 對齊
                 continue
+            # 將日期座標轉為當前畫面座標，同步回 obj 供 _find_nearest_draw_index 選取使用
+            so = self._obj_to_screen(obj)
+            for key in ('x1', 'x2', 'x3'):
+                if key in so:
+                    obj[key] = so[key]
             arts = self._draw_artist_from_obj(ax_k, ax_v, obj)
             self.draw_artists.append(arts)
 
@@ -614,10 +954,10 @@ class cStock(BasicUnit):
         """右側新增工具選擇 RadioButtons + 顏色 RadioButtons + 清除 Button"""
         ax_k, ax_v = axes[0], axes[1]
 
-        # ── 工具選擇（右側上方）
-        ax_tool = plt.axes([0.91, 0.72, 0.08, 0.26], facecolor='#e8e8e8')
-        tools =      ('cursor','hline','vline','line','arrow','arrow2','channel','rect','arc','fib','measure','select','clear')
-        tool_labels = ('🖱 游標','─ 水平','| 垂直','╱ 切線','→ 箭頭','↔ 雙箭','⋀ 軌道','□ 矩形','⌢ 圓弧','φ 斐波','↕ 測距','✥ 選取','✕ 清除')
+        # ── 工具選擇（右側上方；按鈕區下移避免遮住色盤）
+        ax_tool = plt.axes([0.91, 0.735, 0.08, 0.235], facecolor='#e8e8e8')
+        tools =      ('cursor','hline','vline','line','arrow','arrow2','channel','rect','arc','fib','measure','note','select','clear')
+        tool_labels = ('[+] 游標','-- 水平','|  垂直','/  切線','-> 箭頭','<-> 雙箭','=  軌道','[] 矩形','~  圓弧','F  斐波','^  測距','[N] 備註','[*]選取','[X]清除')
         self.radio_tool = RadioButtons(ax_tool, tool_labels, active=0)
         tool_map = dict(zip(tool_labels, tools))
         def on_tool(label):
@@ -629,17 +969,20 @@ class cStock(BasicUnit):
                 try: self.draw_preview.remove()
                 except: pass
                 self.draw_preview = None
+            if self.draw_tool != 'select':
+                self.selected_obj = None
             if self.draw_tool == 'clear':
                 # 只清除當前週期的物件，其他週期的保留
                 self.draw_objects = [o for o in self.draw_objects
                                      if o.get('unit', self.unit) != self.unit]
                 self.draw_artists.clear()
+                self.selected_obj = None
                 self._draw_save()
                 self.update_view(fig, axes)
         self.radio_tool.on_clicked(on_tool)
 
-        # ── 顏色選擇（右側中間，週期按鈕上方）
-        ax_color = plt.axes([0.91, 0.60, 0.08, 0.11], facecolor='#e8e8e8')
+        # ── 顏色選擇（與下方按鈕錯開，避免被遮住）
+        ax_color = plt.axes([0.91, 0.618, 0.08, 0.11], facecolor='#e8e8e8')
         colors_label = ('黃','白','紅','綠','青','紫')
         colors_val   = ('#FFFF00','#FFFFFF','#FF4444','#00E676','#00BCD4','#CE93D8')
         self.radio_color = RadioButtons(ax_color, colors_label, active=0)
@@ -650,14 +993,42 @@ class cStock(BasicUnit):
             circle.set_facecolor(color_map[lbl])
         def on_color(label):
             self.draw_color = color_map[label]
+            if self.selected_obj is not None:
+                idx = self.selected_obj
+                if 0 <= idx < len(self.draw_objects):
+                    self.draw_objects[idx]['color'] = self.draw_color
+                    self._draw_save()
+                    self.update_view(fig, axes)
+                    fig.canvas.draw()
         self.radio_color.on_clicked(on_color)
 
-        # ── 儲存 Button
-        ax_save = plt.axes([0.91, 0.56, 0.08, 0.035], facecolor='#e8e8e8')
-        self.btn_save = Button(ax_save, '💾 儲存', color='#b0bec5', hovercolor='#78909c')
+        # ── 儲存 / PNG 按鈕（2026-05-26 已改用純文字標籤取代 emoji）
+        ax_save = plt.axes([0.91, 0.575, 0.08, 0.030], facecolor='#e8e8e8')
+        self.btn_save = Button(ax_save, '[Save] 繪圖', color='#b0bec5', hovercolor='#78909c')
         def on_save(event):
             self._draw_save()
         self.btn_save.on_clicked(on_save)
+
+        ax_png = plt.axes([0.91, 0.537, 0.08, 0.030], facecolor='#e8e8e8')
+        self.btn_png = Button(ax_png, '[PNG] 匯出', color='#90caf9', hovercolor='#42a5f5')
+        def on_png(event):
+            self.export_png(fig)
+        self.btn_png.on_clicked(on_png)
+
+        ax_zoom_in = plt.axes([0.91, 0.500, 0.038, 0.028], facecolor='#e8e8e8')
+        ax_zoom_out = plt.axes([0.952, 0.500, 0.038, 0.028], facecolor='#e8e8e8')
+        self.btn_zoom_in = Button(ax_zoom_in, '＋', color='#c5e1a5', hovercolor='#9ccc65')
+        self.btn_zoom_out = Button(ax_zoom_out, '－', color='#ffe082', hovercolor='#ffca28')
+        self.btn_zoom_in.on_clicked(lambda e: self._apply_x_zoom(fig, axes, True))
+        self.btn_zoom_out.on_clicked(lambda e: self._apply_x_zoom(fig, axes, False))
+
+        ax_cfg = plt.axes([0.91, 0.463, 0.08, 0.028], facecolor='#e8e8e8')
+        self.btn_cfg = Button(ax_cfg, '儲存設定', color='#d1c4e9', hovercolor='#b39ddb')
+        self.btn_cfg.on_clicked(lambda e: self.save_settings())
+
+        ax_yreset = plt.axes([0.91, 0.428, 0.08, 0.028], facecolor='#e8e8e8')
+        self.btn_yreset = Button(ax_yreset, 'Y軸還原', color='#e0e0e0', hovercolor='#bdbdbd')
+        self.btn_yreset.on_clicked(lambda e: self.reset_y_view(fig, axes))
 
         # ── 綁定繪圖滑鼠事件
         self._bind_drawing_events(fig, axes)
@@ -683,29 +1054,23 @@ class cStock(BasicUnit):
             tool = self.draw_tool
             x, y = event.xdata, event.ydata
 
-            # ── select 模式：找最近物件
+            # ── select 模式：找最近物件（僅當前週期）
             if tool == 'select' and event.button == 1:
-                best, best_d = None, 1e9
-                for i, obj in enumerate(self.draw_objects):
-                    ox, oy = obj['x1'], obj['y1']
-                    d = ((ox-x)**2 + (oy-y)**2)**0.5
-                    if d < best_d:
-                        best_d, best = d, i
-                if best is not None and best_d < 5:
+                best = self._find_nearest_draw_index(x, y)
+                if best is not None:
                     self.selected_obj = best
-                    self.drag_offset = (self.draw_objects[best]['x1']-x,
-                                        self.draw_objects[best]['y1']-y)
+                    obj = self.draw_objects[best]
+                    self.drag_offset = (obj['x1'] - x, obj['y1'] - y)
+                else:
+                    self.selected_obj = None
                 return
 
             # ── 右鍵：刪除最近物件
-            if event.button == 3 and tool in ('select','cursor'):
-                best, best_d = None, 1e9
-                for i, obj in enumerate(self.draw_objects):
-                    ox, oy = obj['x1'], obj['y1']
-                    d = ((ox-x)**2 + (oy-y)**2)**0.5
-                    if d < best_d:
-                        best_d, best = d, i
-                if best is not None and best_d < 5:
+            if event.button == 3 and tool in ('select', 'cursor'):
+                best = self._find_nearest_draw_index(x, y)
+                if best is not None:
+                    if best == self.selected_obj:
+                        self.selected_obj = None
                     self.draw_objects.pop(best)
                     self._draw_save()
                     self.update_view(fig, axes)
@@ -714,12 +1079,15 @@ class cStock(BasicUnit):
             if event.button != 1: return
             if tool in ('cursor','select','clear'): return
 
-            # ── 單點工具（水平線/垂直線）
-            if tool in ('hline', 'vline'):
+            # ── 單點工具（水平線/垂直線/備註）
+            if tool in ('hline', 'vline', 'note'):
                 obj = {'type': tool, 'x1': x, 'y1': y, 'x2': x, 'y2': y,
                        'd1': self._x_to_date(x),
                        'unit': self.unit,
                        'color': self.draw_color, 'panel': _panel(event.inaxes)}
+                if tool == 'note':
+                    obj['text'] = self._x_to_date(x)
+                    obj['bg'] = '#00000088'
                 self.draw_objects.append(obj)
                 arts = self._draw_artist_from_obj(ax_k, ax_v, obj)
                 self.draw_artists.append(arts)
@@ -784,7 +1152,8 @@ class cStock(BasicUnit):
                 fig.canvas.draw_idle()
 
         def on_release(event):
-            self.selected_obj = None
+            # 保留 selected_obj，才能放開滑鼠後用色盤改色
+            pass
 
         def on_motion(event):
             if event.inaxes not in DRAW_AXES: return
@@ -813,7 +1182,7 @@ class cStock(BasicUnit):
             # 預覽線（兩點工具第一點已點下）
             if self.draw_step >= 1 and self.draw_p1 is not None:
                 tool = self.draw_tool
-                if tool in ('cursor','select','clear','hline','vline','fib'): return
+                if tool in ('cursor','select','clear','hline','vline','fib','note'): return
                 ax_target = ax_k if self.draw_p1[2] == 'k' else ax_v
                 _remove_preview()
                 x1, y1 = self.draw_p1[0], self.draw_p1[1]
@@ -887,13 +1256,53 @@ class cStock(BasicUnit):
         fig.canvas.mpl_connect('motion_notify_event', on_motion)
 
     def _setup_cursor(self, fig, axes):
+        self._ctrl_held = False
+
+        def on_key_press(event):
+            if event.key == 'control':
+                self._ctrl_held = True
+
+        def on_key_release(event):
+            if event.key == 'control':
+                self._ctrl_held = False
+
+        def on_press(event):
+            if event.button != 1: return
+            if event.inaxes not in axes: return
+            if event.xdata is None: return
+            if self.draw_tool != 'cursor': return
+            self.is_dragging = True
+            self.press_x = event.xdata
+            self.press_start_idx = self.start_idx
+            if event.ydata is not None:
+                self._press_y = event.ydata
+                self._press_k_y_zoom = self.k_y_zoom
+                if self.k_y_center is not None:
+                    self._press_k_y_center = self.k_y_center
+                elif self.df is not None and len(self.df) > 0:
+                    self._press_k_y_center = (float(self.df['最低價'].min()) + float(self.df['最高價'].max())) / 2
+                else:
+                    self._press_k_y_center = event.ydata
+
+        def on_release(event):
+            self.is_dragging = False
 
         def on_mouse(event):
             if event.inaxes is None: return
-            if self.is_dragging and self.press_x is not None:   # 拖曳平移
-                dx = int(round(event.xdata - self.press_x))     # 拖曳範圍距離
-                self.start_idx = max(0, min(self.press_start_idx - dx, len(self.df_all) - self.n_days))     #視覺起點
-                self.update_view(fig, axes)
+            if self.is_dragging and self.press_x is not None:
+                if self._ctrl_held and event.inaxes == axes[0] and hasattr(self, '_press_y'):
+                    # Ctrl + 垂直拖曳於價格圖 = Y 軸縮放
+                    dy = self._press_y - event.ydata
+                    if self._press_k_y_center and abs(self._press_k_y_center) > 0.001:
+                        factor = 1.0 + dy / abs(self._press_k_y_center) * 8.0
+                        self.k_y_zoom = max(0.35, min(25.0, self._press_k_y_zoom * max(0.4, factor)))
+                        self.k_y_center = self._press_k_y_center
+                    self.update_view(fig, axes)
+                else:
+                    # 水平平移
+                    dx = int(round(event.xdata - self.press_x))
+                    self.start_idx = max(0, min(self.press_start_idx - dx, len(self.df_all) - self.n_days))
+                    self.update_view(fig, axes)
             elif not self.is_dragging:   # 純移動，顯示資訊
                 idx = int(round(event.xdata))
                 if 0 <= idx < len(self.df):
@@ -907,13 +1316,18 @@ class cStock(BasicUnit):
                     # emoji 獨立渲染（matplotlib text 無法顯示 emoji，需用 PIL 圖片）
                     self.oi_emoji.set_data(make_emoji_img(whale, 48))
                     # info_box 只放純文字（去掉 whale emoji）
-                    txt = (f"{r['日期'].date()} | {status}  ma5:{r['ma5']:.1f} ma20:{r['ma20']:.1f}\n"
-                           f"均價:{r['均價']:.1f} 高:{r['最高價']:.1f} 開:{r['開盤價']:.1f} 收:{r['收盤價']} 低:{r['最低價']} 量{(r['成交股數']/1000):.1f}\n"
+                    est_line = ""
+                    if getattr(self, '_est_vol', None) is not None:
+                        est_line = f"預估量:{self._est_vol/1000:.0f}張 | "
+                    txt = (f"{r['日期'].date()} | {status}  "
+                           f"{self.ma_short_period}MA:{r['ma_s']:.1f} {self.ma_long_period}MA:{r['ma_l']:.1f}\n"
+                           f"{est_line}均價:{r['均價']:.1f} 高:{r['最高價']:.1f} 開:{r['開盤價']:.1f} 收:{r['收盤價']} 低:{r['最低價']} 量{(r['成交股數']/1000):.1f}\n"
                            f"MACD:{r['macd']:.1f}  K:{r['K']:.1f} D:{r['D']:.1f}  布林:U:{r['ub']:.1f} STD:{r['ma20']:.1f}  L:{r['lb']:.1f}")
-                    # ── 關鍵修正：info_box/oi_vol 每次 update_view 後已重建為 instance 變數 ──
                     self.info_box.set_text(txt)
-                    self.info_box.set_color(self.palette.rise if is_up else self.palette.fall)
-                    self.oi_vol.set_data(make_emoji_img('🔥' if r['成交股數']/1000 > r['vol_ma5']*1.5 else '📊'))
+                    self.info_box.set_color(
+                        getattr(self.palette, 'rise_color', self.palette.rise) if is_up
+                        else getattr(self.palette, 'fall_color', self.palette.fall))
+                    self.oi_vol.set_data(make_emoji_img('🔥' if r['成交股數'] > r['vol_ma5']*1.5 else '📊'))
 
                     x_pos = event.xdata
                     for vline in self.vlines:
@@ -922,13 +1336,28 @@ class cStock(BasicUnit):
 
                     fig.canvas.draw_idle()
 
-        fig.canvas.mpl_connect('button_press_event', lambda e: (
-            setattr(self, 'is_dragging', True) or
-            setattr(self, 'press_x', e.xdata) or
-            setattr(self, 'press_start_idx', self.start_idx)
-        ) if e.button == 1 and e.inaxes in axes and e.xdata is not None else None)
-        fig.canvas.mpl_connect('button_release_event', lambda e: setattr(self, 'is_dragging', False))
+        fig.canvas.mpl_connect('key_press_event', on_key_press)
+        fig.canvas.mpl_connect('key_release_event', on_key_release)
+        fig.canvas.mpl_connect('button_press_event', on_press)
+        fig.canvas.mpl_connect('button_release_event', on_release)
         fig.canvas.mpl_connect('motion_notify_event', on_mouse)
+
+    def _setup_x_zoom(self, fig, axes):
+        """滾輪：一般=X 縮放；Shift+滾輪於價格圖=Y 縮放。週期 unit 不變。"""
+
+        def on_scroll(event):
+            if event.inaxes not in axes:
+                return
+            if self.draw_tool != 'cursor':
+                return
+            if getattr(event, 'step', 0) == 0:
+                return
+            if event.key == 'shift' and event.inaxes is axes[0]:
+                self._apply_y_zoom(fig, axes, zoom_in=(event.step > 0))
+            else:
+                self._apply_x_zoom(fig, axes, zoom_in=(event.step > 0))
+
+        fig.canvas.mpl_connect('scroll_event', on_scroll)
 
     def plot_all(self, block=True):
         setup_chinese_font()
@@ -941,13 +1370,19 @@ class cStock(BasicUnit):
         self.radio = RadioButtons(ax_radio, ('1分','5分','15分','30分','60分','日K','週K','月K'), active=self.unitIndex)
         def change_p(label):
             m = {'1分':'1T','5分':'5T','15分':'15T','30分':'30T','60分':'60T','日K':'D','週K':'W-FRI','月K':'ME'}
-            self.unit = m[label]; self.refresh_period_data(); self.update_view(fig, axes)
+            self.unit = m[label]
+            self.unitIndex = list(m.keys()).index(label)
+            self.refresh_period_data()
+            self.update_view(fig, axes)
+            self.save_settings()
         self.radio.on_clicked(change_p)
 
+        self._fig = fig
         # ── 載入上次儲存的繪圖 + 建立繪圖工具 UI
         self._draw_load()
         self.update_view(fig, axes)
         self._setup_cursor(fig, axes)
+        self._setup_x_zoom(fig, axes)
         self._setup_drawing_ui(fig, axes)
 
         plt.tight_layout(rect=[0.01, 0.03, 0.90, 0.97])
@@ -963,26 +1398,32 @@ if __name__ == "__main__":
 
     tsmc = cStock("2330.TW", "台積電")
     tsmc.load_data("2330.csv")
-    from google import genai
 
-# The client gets the API key from the environment variable `GEMINI_API_KEY`.
-#client = genai.Client()
+ 
 
-# response = client.models.generate_content(
-#     model="gemini-3-flash-preview", contents="Explain how AI works in a few words"
-# )
-# print(response.text)
-tsmc.plot_all()
+    tsmc.plot_all()
 
 """
 整合後的主要改變與說明：
-MACD 與 KDJ 完整回歸：在 calculate_indicators 與 _draw 面板方法中，完整實現了您最初要求的 EMA、RSV 計算，以及金叉 scatter 標註與 80/20 警戒線。
+MACD 與 KDJ 完整回歸：在 calculate_indicators 與 _draw 面板方法中，完整實現 EMA、RSV 計算，以及金叉 scatter 標註與 80/20 警戒線。
 大戶 Whale 診斷系統：在 on_mouse 中，系統會自動比對 收盤價 與 均價。如果股價在跌但站穩均價且大單增加，系統會顯示 🟢 🐋↗ 大戶吸收 [Conversation History, 354]。
 解決 Attribute 報錯：加入了 update_view 作為中央刷新方法，確保不管是手動滑動 X 軸還是點擊 Radio 按鈕切換週期，畫面都會同步重繪 [348, Conversation History]。
-深色模式與視窗管理：StockPalette 會根據 style="Dark" 自動調整背景與 K 線顏色。且由於加入了 block 參數，您現在可以同時開啟多個股票視窗進行「評估與對比」 [348, Conversation History]。
-您可以立刻驗證的目視項目：
+深色模式與視窗管理：StockPalette 會根據 style="Dark" 自動調整背景與 K 線顏色。且由於加入了 block 參數，可以同時開啟多個股票視窗進行「評估與對比」 [348, Conversation History]。
+目視驗證：
 K棒價格標籤：觀察 X 軸刻度處的 K 棒，若是紅K，上方應會出現「最高價」與「收盤價」；若是綠K，下方應會出現「收盤價」與「最低價」。
 大戶吸收訊號：找到股價下跌但成交筆數不多、單筆量大的日子（綠 K 棒），資訊盒應顯示 🟢 🐋↗ 大戶持續吸收 [Conversation History]。
 大戶脫手訊號：找到股價強拉但均價卻在下方的日子（紅 K 棒），資訊盒應顯示 🔴 🐋↘ 大戶拉高脫手 [Conversation History]。
 MACD 標註：確認 DIF 線穿過 DEA 線時，是否有紅色的 ▲ (金叉) 符號出現在面板上
+KDJ 標註：確認 K 值超過 80 時，是否有紅色的 ▲ 符號出現在面板上
+布林通道：確認價格是否在布林通道內，且是否在布林通道上方或下方
+均線：確認價格是否在均線上方或下方
+均量：確認成交股數是否在均量上方或下方
+成交量：確認成交量是否在均量上方或下方
+成交量均量：確認成交量是否在均量上方或下方
+修改支撐壓力算法：暫時以視覺驗證，未進行量化驗證.偏向短線評估,長線改看月線或季線
+todo:
+    ✥ 選取改色功能尚未完成
+ 右側選 ✥ 的圖示..等,幾乎都只看到一個方塊,似乎Emoji 渲染有問題
+ 目前右側設定工具區,無法完全顯示,需要調整,建議可以將設定工具區移動到左側,或右側下方.因為Emoji 渲染有問題,導致無法完全顯示
+    
 """    

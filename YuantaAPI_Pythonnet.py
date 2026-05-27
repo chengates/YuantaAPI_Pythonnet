@@ -243,7 +243,7 @@ class StockQuoteState:
         if self.trade_count > 0 and self.total_volume > 0:
             avg_trade_size = self.total_volume / self.trade_count
             if self.yesterday_volume and self.yesterday_volume > 0:
-                normal_size = self.yesterday_volume / 1000
+                normal_size = self.yesterday_volume
                 if avg_trade_size > normal_size * 1.5:
                     score += 15 if score > 0 else -15
 
@@ -2469,7 +2469,7 @@ def open_api(yuanta):
     server = cfg.get("server", "UAT").upper()
     valid_servers = ['UAT', 'PROD']
     if server not in valid_servers:
-        print(f"[{dt.datetime.now()}] ⚠ 未知伺服器 '{server}'，降級為 UAT (可用: {valid_servers})")
+        print(f"[{dt.datetime.now()}] [WARN] 未知伺服器 '{server}'，降級為 UAT (可用: {valid_servers})")
         server = 'UAT'
     mode = getattr(enumEnvironmentMode, server, enumEnvironmentMode.UAT)
     label = '正式環境 PROD' if server == 'PROD' else '測試環境 UAT'
@@ -2482,7 +2482,7 @@ def _load_account_config():
     if os.path.exists("accountEnv.json"):
         with open("accountEnv.json", encoding="utf-8") as f:
             return json.load(f)
-    print(f"[{dt.datetime.now()}] ⚠ accountEnv.json 不存在，使用預設 UAT")
+    print(f"[{dt.datetime.now()}] [WARN] accountEnv.json 不存在，使用預設 UAT")
     return {"server": "UAT", "accounts": []}
 
 def get_active_accounts():
@@ -2494,7 +2494,7 @@ def get_active_accounts():
     accounts = cfg.get("accounts", [])
     idx = 1 if server == "PROD" else 0
     if idx >= len(accounts):
-        print(f"[{dt.datetime.now()}] ⚠ accounts 缺少 index={idx}，降級為 index=0")
+        print(f"[{dt.datetime.now()}] [WARN] accounts 缺少 index={idx}，降級為 index=0")
         idx = 0
     env_entry = accounts[idx] if idx < len(accounts) else {}
     return env_entry.get("users", [])
@@ -2503,7 +2503,7 @@ def get_active_accounts():
 def login_api(yuanta):
     accounts = get_active_accounts()
     if not accounts:
-        print(f"[{dt.datetime.now()}] ⚠ accountEnv.json 無帳號設定，略過登入")
+        print(f"[{dt.datetime.now()}] [WARN] accountEnv.json 無帳號設定，略過登入")
         return
     for i, acct in enumerate(accounts):
         stock = acct.get("stock")
@@ -3039,7 +3039,7 @@ login_api(objYuantaOneAPI)
 time.sleep(3)
 print(f"[{dt.datetime.now()}] 登入狀態: {SUBSCRIPTION_STATE.get('login_status', False)}")
 if not SUBSCRIPTION_STATE.get('login_status', False):
-    print(f"[{dt.datetime.now()}] ⚠ 登入失敗或未收到確認 — API 伺服器可能不在交易時段")
+    print(f"[{dt.datetime.now()}] [WARN] 登入失敗或未收到確認 — API 伺服器可能不在交易時段")
 
 #登出
 #LogOut_api(objYuantaOneAPI)
@@ -3393,6 +3393,10 @@ def _display_quote_info(state):
         sell_volumes = record.get('sell_volumes', [])
         extra_data = record.get('extra_data', {})
 
+        def _fmt_vol(v):
+            """顯示成交量：API 原始股數 → 張（÷1000），None → N/A"""
+            return f"{v/1000:.0f}張" if v is not None else "N/A"
+
         print(f"\n===== {stock_id} 報價 (索引: {byIndexFlag}) =====")
         close_price = record.get('close_price')
         deal_volume = record.get('deal_volume')
@@ -3407,9 +3411,9 @@ def _display_quote_info(state):
         estimated_day_volume = record.get('estimated_day_volume')
         pct_of_yesterday_avg = record.get('pct_of_yesterday_avg')
 
-        print(f"最新成交: {close_price if close_price is not None else 'N/A'} 量: {deal_volume if deal_volume is not None else 'N/A'} 成交額: {deal_amount if deal_amount is not None else 'N/A'}")
+        print(f"最新成交: {close_price if close_price is not None else 'N/A'} 量: {_fmt_vol(deal_volume)} 成交額: {deal_amount if deal_amount is not None else 'N/A'}")
         print(f"開: {open_price if open_price is not None else 'N/A'}  高: {high_price if high_price is not None else 'N/A'}  低: {low_price if low_price is not None else 'N/A'}  收: {close_price if close_price is not None else 'N/A'}  漲跌: {price_diff if price_diff is not None else 'N/A'}")
-        print(f"成交筆數: {trade_count} 內盤: {total_in_volume} 外盤: {total_out_volume} 估日量: {estimated_day_volume if estimated_day_volume is not None else 'N/A'} 昨日均量%: {pct_of_yesterday_avg if pct_of_yesterday_avg is not None else 'N/A'}")
+        print(f"成交筆數: {trade_count} 內盤: {_fmt_vol(total_in_volume)} 外盤: {_fmt_vol(total_out_volume)} 估日量: {_fmt_vol(estimated_day_volume)} 昨日均量%: {pct_of_yesterday_avg if pct_of_yesterday_avg is not None else 'N/A'}")
         print(f"分類: {record.get('stock_type', 'N/A')} | 主力/散戶: {record.get('participation_label', 'N/A')} (score={record.get('participation_score', 'N/A')})")
 
         if extra_data:
@@ -3419,12 +3423,12 @@ def _display_quote_info(state):
             print(f"MA5: {record.get('ma5')}  MA10: {record.get('ma10')}  動量: {record.get('price_momentum')}")
 
         if record.get('buy_total_volume') is not None or record.get('sell_total_volume') is not None:
-            print(f"買總量: {record.get('buy_total_volume')} 賣總量: {record.get('sell_total_volume')} 盤差: {record.get('buy_sell_imbalance')} 盤壓: {record.get('buy_sell_pressure')}%")
+            print(f"買總量: {_fmt_vol(record.get('buy_total_volume'))} 賣總量: {_fmt_vol(record.get('sell_total_volume'))} 盤差: {record.get('buy_sell_imbalance')} 盤壓: {record.get('buy_sell_pressure')}%")
 
         if buy_volumes and sell_volumes:
             total_buy = sum(buy_volumes)
             total_sell = sum(sell_volumes)
-            print(f"買盤累計量: {total_buy}, 賣盤累計量: {total_sell}")
+            print(f"買盤累計量: {_fmt_vol(total_buy)}, 賣盤累計量: {_fmt_vol(total_sell)}")
             if total_buy + total_sell > 0:
                 buy_ratio = total_buy / (total_buy + total_sell) * 100
                 sell_ratio = total_sell / (total_buy + total_sell) * 100
