@@ -3221,28 +3221,29 @@ def _write_daily_summary(stock_id: str, state):
     else:
         total_amount = int(total_volume * close_p) if close_p > 0 else 0
 
-    # @stock_id.csv 日總結
+    # @stock_id.csv 日總結（欄位對齊 cStock.load_data() 預期格式）
     file_exists = os.path.exists(filename)
-    fieldnames = ["date", "stock_id", "open_price", "high_price", "low_price",
-                  "close_price", "total_volume", "total_in_volume", "total_out_volume",
-                  "estimated_day_volume", "trade_count"]
+    fieldnames = ["日期", "stock_id", "開盤價", "最高價", "最低價",
+                  "收盤價", "成交股數", "成交金額", "成交筆數",
+                  "total_in_volume", "total_out_volume", "estimated_day_volume"]
     try:
         with open(filename, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
                 writer.writeheader()
             writer.writerow({
-                "date": f"{now.year}{now.month:02d}{now.day:02d}",
+                "日期": f"{now.year}{now.month:02d}{now.day:02d}",
                 "stock_id": stock_id,
-                "open_price": open_p,
-                "high_price": high_p,
-                "low_price": low_p,
-                "close_price": close_p,
-                "total_volume": total_volume,
+                "開盤價": open_p,
+                "最高價": high_p,
+                "最低價": low_p,
+                "收盤價": close_p,
+                "成交股數": total_volume,
+                "成交金額": total_amount,
+                "成交筆數": record.get("trade_count"),
                 "total_in_volume": record.get("total_in_volume") or 0,
                 "total_out_volume": record.get("total_out_volume") or 0,
                 "estimated_day_volume": record.get("estimated_day_volume") or 0,
-                "trade_count": record.get("trade_count"),
             })
         # 同步更新到 yesterday/ 供隔日載入
         yesterday_dir = "yesterday"
