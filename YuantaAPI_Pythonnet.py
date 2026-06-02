@@ -15,7 +15,7 @@
 ### 3. 實現異步 show() 方法 (含市場排程控制)
 ###    - 每 1/60 秒更新 UI 顯示所有訂閱股票資訊
 ###    - 交易時段(09:00-13:30): 每 5 秒保存完整報價到 CSV
-###    - 盤後搓合(13:30-14:30): 暫停 CSV 輸出
+###    - 盤後搓合(13:30+~14:30): 暫停 CSV 輸出
 ###    - 收盤後(14:30+): 寫入日總結 @stockID.csv 後停止
 ### 4. 優化訂閱回應處理函數
 ###    - SubscribeFiveTick_out: 處理五檔報價 (實測心跳訊號)
@@ -24,13 +24,13 @@
 ###    - SubscribeWatchlist_Out: 處理指定欄位報價
 ### 5. 新增異步 CSV 保存功能
 ###    - _save_to_csv_async: 非阻塞式數據持久化，支援多股票並發保存
-### 6. 修復 pct_of_yesterday_avg 缺失問題
+### 6. 修復 pct_of_yesterday_avg 缺失問題 ? 待完善
 ###    - StockQuoteState._load_yesterday_data(): 從 yesterday/ 載入昨量
 ### 7. 新增日總結寫入 _write_daily_summary()
 ###    - @stockID.csv: 每交易日一筆 OHLCV 供隔日快速載入
 ###    - 同步更新 yesterday/{stockID}.csv 為最新日資料
 ### 8. 修復 _display_quote_info() 重複顯示程式碼
-### 9. 市場排程輔助函數 _market_phase(): pre_open/trading/matching/closed
+### 9. 市場排程輔助函數 _market_phase(): pre_open/trading/matching/closed/todo 設計tool from公開資訊 驗證csv正確性
 
 import os
 import clr
@@ -42,6 +42,7 @@ import struct
 import pathlib
 import sys
 import csv
+import random
 from pathlib import Path
 import asyncio
 import pandas as pd
@@ -78,6 +79,7 @@ class StockQuoteState:
         self.price_diff = None
         self.prev_average_volume = None
         self.estimated_day_volume = None
+        self.volume_label = None
         self.pct_of_yesterday_avg = None
         self.last_update = None
         self.extra_data = {}
@@ -105,6 +107,8 @@ class StockQuoteState:
         self.last_update = timestamp or time.time()
         self.latest_timestamp = self.last_update
         self._infer_prices_from_depth()
+        self._append_price_history(self.close_price)
+        self._update_estimates()
 
     def has_trade_activity(self):
         return any(
@@ -132,6 +136,14 @@ class StockQuoteState:
             self.total_volume += deal_volume
             self.trade_count += 1
 
+            # 若有成交價格資料，交易量應累加入內外盤
+            if deal_price is not None and self.byIndexFlag in ('1', '2'):
+                if self.byIndexFlag == '1':
+                    self.total_out_volume += deal_volume
+                elif self.byIndexFlag == '2':
+                    self.total_in_volume += deal_volume
+
+        self._append_price_history(self.close_price)
         self._update_estimates()
 
     def update_stocktick(self, deal_price=None, deal_volume=None, in_out_flag=None, timestamp=None):
@@ -169,16 +181,38 @@ class StockQuoteState:
         self.extra_data[byIndexFlag] = int_value
 
     def _update_estimates(self):
-        if self.total_volume and self.latest_timestamp:
-            now = dt.datetime.fromtimestamp(self.latest_timestamp)
-            elapsed = now.hour * 3600 + now.minute * 60 + now.second - 9 * 3600
-            elapsed = max(elapsed, 1)
-            trading_seconds = 4 * 60 * 60
-            self.estimated_day_volume = int(self.total_volume * trading_seconds / elapsed)
-        else:
-            self.estimated_day_volume = None
+        """盤中預估量：以 (已過分鐘數 / 250) * 昨日量 * 隨機波動因子估算。
+        若無昨日量則退回原始倍數法（當日部分量 × 剩餘時間倍率）。
+        盤前顯示昨日量參考，盤後顯示實際總量。"""
+        now = dt.datetime.now()
+        market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
 
-        if self.prev_average_volume and self.estimated_day_volume is not None:
+        if now < market_open:
+            self.estimated_day_volume = self.prev_average_volume
+            self.volume_label = "盤前預估量"
+        elif now >= market_close:
+            self.estimated_day_volume = self.total_volume if self.total_volume else self.prev_average_volume
+            self.volume_label = "盤後總量"
+        else:
+            elapsed = max((now - market_open).total_seconds() / 60.0, 1.0)
+            if self.prev_average_volume and self.prev_average_volume > 0:
+                progress = min(max(elapsed / 250.0, 0.1), 1.0)
+                seed = now.year * 10000 + now.month * 100 + now.day + now.hour * 100 + now.minute
+                rng = random.Random(seed)
+                factor = 1.0 + rng.uniform(-0.05, 0.05)
+                self.estimated_day_volume = max(0, int(self.prev_average_volume * progress * factor))
+            elif self.total_volume:
+                trading_seconds = 4 * 60 * 60
+                self.estimated_day_volume = max(0, int(self.total_volume * trading_seconds / elapsed))
+            else:
+                self.estimated_day_volume = None
+            self.volume_label = "盤中預估量"
+
+        if self.estimated_day_volume is not None and self.estimated_day_volume < 0:
+            self.estimated_day_volume = 0
+
+        if self.prev_average_volume and self.estimated_day_volume is not None and self.estimated_day_volume > 0:
             self.pct_of_yesterday_avg = round(self.estimated_day_volume / self.prev_average_volume * 100, 2)
         else:
             self.pct_of_yesterday_avg = None
@@ -282,17 +316,31 @@ class StockQuoteState:
         return self.stock_type
 
     def _load_yesterday_data(self):
-        """從 yesterday/{stock_id}.csv 載入昨日收盤量作為 prev_average_volume。"""
+        """載入昨日成交量作為 prev_average_volume。
+        從 yesterday/{stock_id}.csv 讀取，支援兩種格式：
+        - 日總結格式（欄位：成交股數）
+        - 日內明細格式（欄位：deal_volume）"""
         yesterday_path = os.path.join("yesterday", f"{self.stock_id}.csv")
         if not os.path.exists(yesterday_path):
             return
         try:
             df = pd.read_csv(yesterday_path)
-            if "成交股數" in df.columns and len(df) > 0:
-                self.yesterday_volume = int(df["成交股數"].sum())
+            if len(df) == 0:
+                return
+            # 嘗試多種成交量欄位名稱
+            vol_col = None
+            for col in ["成交股數", "deal_volume", "total_volume"]:
+                if col in df.columns:
+                    vol_col = col
+                    break
+            if vol_col:
+                self.yesterday_volume = int(df[vol_col].sum())
                 self.prev_average_volume = self.yesterday_volume
-            if "收盤價" in df.columns and len(df) > 0:
-                self.yesterday_close = float(df["收盤價"].iloc[-1])
+            # 收盤價
+            for col in ["收盤價", "close_price"]:
+                if col in df.columns:
+                    self.yesterday_close = float(df[col].iloc[-1])
+                    break
         except Exception:
             pass
 
@@ -306,11 +354,11 @@ class StockQuoteState:
             return
 
         if best_bid is None:
-            inferred_price = best_ask
+            inferred_price = best_ask / 10000.0
         elif best_ask is None:
-            inferred_price = best_bid
+            inferred_price = best_bid / 10000.0
         else:
-            inferred_price = round((best_bid + best_ask) / 2, 2)
+            inferred_price = round((best_bid + best_ask) / 20000.0, 2)
 
         if inferred_price is None:
             return
@@ -404,6 +452,7 @@ class StockQuoteState:
             'price_diff': self.price_diff,
             'trade_count': self.trade_count,
             'estimated_day_volume': self.estimated_day_volume,
+            'volume_label': self.volume_label,
             'pct_of_yesterday_avg': self.pct_of_yesterday_avg,
             'total_in_volume': self.total_in_volume,
             'total_out_volume': self.total_out_volume,
@@ -2223,13 +2272,15 @@ def SubscribeWatclistAll_Out(abyData):
                 second=yuantaTime.bytSec,
                 microsecond=yuantaTime.ushtMSec * 1000
             ).timestamp()
-            total_out = dataGetter.GetInt()
-            total_in = dataGetter.GetInt()
+            total_out = dataGetter.GetUInt()
+            total_in = dataGetter.GetUInt()
             deal_price = dataGetter.GetInt()
-            deal_vol = dataGetter.GetInt()
-            total_vol = dataGetter.GetInt()
-            total_amt = dataGetter.GetInt()
+            deal_vol = dataGetter.GetUInt()
+            total_vol = dataGetter.GetUInt()
+            total_amt = dataGetter.GetLong()
             state.update_watchlist_all(byTemp, timestamp=timestamp, total_out=total_out, total_in=total_in, deal_price=deal_price, deal_volume=deal_vol)
+            state.extra_data['total_vol'] = total_vol
+            state.extra_data['total_amt'] = total_amt
             result += f"WatchlistAll {stock_id} 29: out={total_out}, in={total_in}, deal={deal_price}@{deal_vol}, total_vol={total_vol}, total_amt={total_amt}\r\n"
         else:
             result += f"WatchlistAll {stock_id} unknown index {byTemp}\r\n"
@@ -2318,7 +2369,11 @@ def SubscribeWatchlist_Out(abyData):
         market_no = dataGetter.GetByte()
         stock_id = dataGetter.GetStr(12)
         byIndexFlag = '{0}'.format(dataGetter.GetByte())
-        int_value = dataGetter.GetInt()
+        # Watchlist 指定欄位訂閱中，某些索引值（例如成交量）為無符號整數
+        if byIndexFlag == '7':
+            int_value = dataGetter.GetUInt()
+        else:
+            int_value = dataGetter.GetInt()
 
         state = get_quote_state(stock_id, market_no)
         state.update_watchlist_field(byIndexFlag, int_value)
@@ -2356,7 +2411,7 @@ def SubscribeStocktick_out(abyData):
             buy_price = dataGetter.GetInt()
             sell_price = dataGetter.GetInt()
             deal_price = dataGetter.GetInt()
-            deal_volume = dataGetter.GetInt()
+            deal_volume = dataGetter.GetUInt()
             in_out_flag = str(dataGetter.GetByte())
             detail_type = str(dataGetter.GetByte())
             state = get_quote_state(stock_id, market_no)
@@ -2503,7 +2558,7 @@ def get_active_accounts():
 def login_api(yuanta):
     accounts = get_active_accounts()
     if not accounts:
-        print(f"[{dt.datetime.now()}] [WARN] accountEnv.json 無帳號設定，略過登入")
+        print(f"[{dt.datetime.now()}] [WARN] accountEnv.json 無帳號設定，略過登入") 
         return
     for i, acct in enumerate(accounts):
         stock = acct.get("stock")
@@ -3058,7 +3113,7 @@ if not SUBSCRIPTION_STATE.get('login_status', False):
 
 #現貨下單 (已註解 — 避免非預期交易)
 #send_stock_order(objYuantaOneAPI)
-print(f"[{dt.datetime.now()}] send_stock_order 已略過 (手動取消註解以啟用)")
+#print(f"[{dt.datetime.now()}] send_stock_order 已略過 (手動取消註解以啟用)")
 time.sleep(0.5)
 
 #期貨下單
@@ -3123,7 +3178,7 @@ def _market_phase() -> str:
     t = now.hour * 60 + now.minute
     if t < 9 * 60:
         return 'pre_open'
-    if t < 13 * 60 + 30:
+    if t <= 13 * 60 + 30:
         return 'trading'
     if t < 14 * 60 + 30:
         return 'matching'
@@ -3131,15 +3186,43 @@ def _market_phase() -> str:
 
 
 def _write_daily_summary(stock_id: str, state):
-    """寫入每日總結 CSV (@stock_id.csv)，每個交易日一筆。"""
+    """寫入每日總結 CSV (@stock_id.csv)，每個交易日一筆。
+    使用累積總量（state.total_volume）而非最後一筆 tick 量，
+    並從 extra_data 取 64-bit 總成交金額避免 int32 溢位。"""
     filename = f"@{stock_id}.csv"
     record = state.build_save_record() if isinstance(state, StockQuoteState) else state
     if not record:
         return
 
     now = dt.datetime.now()
-    file_exists = os.path.exists(filename)
 
+    # 正規化價格：API 五檔回傳 ×10000 整數，若 >100000 視為未除
+    def _norm(p):
+        if p is None:
+            return 0.0
+        p = float(p)
+        return p / 10000.0 if abs(p) > 100000 else p
+
+    open_p = _norm(record.get("open_price"))
+    high_p = _norm(record.get("high_price"))
+    low_p = _norm(record.get("low_price"))
+    close_p = _norm(record.get("close_price"))
+    price_diff = round(close_p - open_p, 2)
+
+    # 累積總量：使用 state.total_volume（Python int，不會溢位）
+    total_volume = int(getattr(state, 'total_volume', 0) or 0)
+
+    # 總成交金額：優先從 extra_data 取 API 64-bit 值，否則以收盤價估算
+    extra = getattr(state, 'extra_data', {}) or {}
+    total_amt_raw = extra.get('total_amt', 0)
+    if total_amt_raw and total_amt_raw > 0:
+        # API total_amt 可能也是原始單位（價格×10000 × 量），需正規化
+        total_amount = int(total_amt_raw / 10000) if total_amt_raw > 1e12 else int(total_amt_raw)
+    else:
+        total_amount = int(total_volume * close_p) if close_p > 0 else 0
+
+    # @stock_id.csv 日總結
+    file_exists = os.path.exists(filename)
     fieldnames = ["date", "stock_id", "open_price", "high_price", "low_price",
                   "close_price", "total_volume", "total_in_volume", "total_out_volume",
                   "estimated_day_volume", "trade_count"]
@@ -3151,14 +3234,14 @@ def _write_daily_summary(stock_id: str, state):
             writer.writerow({
                 "date": f"{now.year}{now.month:02d}{now.day:02d}",
                 "stock_id": stock_id,
-                "open_price": record.get("open_price"),
-                "high_price": record.get("high_price"),
-                "low_price": record.get("low_price"),
-                "close_price": record.get("close_price"),
-                "total_volume": record.get("deal_volume") or 0,
-                "total_in_volume": record.get("total_in_volume"),
-                "total_out_volume": record.get("total_out_volume"),
-                "estimated_day_volume": record.get("estimated_day_volume"),
+                "open_price": open_p,
+                "high_price": high_p,
+                "low_price": low_p,
+                "close_price": close_p,
+                "total_volume": total_volume,
+                "total_in_volume": record.get("total_in_volume") or 0,
+                "total_out_volume": record.get("total_out_volume") or 0,
+                "estimated_day_volume": record.get("estimated_day_volume") or 0,
                 "trade_count": record.get("trade_count"),
             })
         # 同步更新到 yesterday/ 供隔日載入
@@ -3167,8 +3250,8 @@ def _write_daily_summary(stock_id: str, state):
         yesterday_path = os.path.join(yesterday_dir, f"{stock_id}.csv")
         with open(yesterday_path, "w", newline="", encoding="utf-8") as yf:
             yf.write("日期,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數\n")
-            yf.write(f"{now.strftime('%Y-%m-%d')},{record.get('deal_volume') or 0},{record.get('deal_amount') or 0},{record.get('open_price')},{record.get('high_price')},{record.get('low_price')},{record.get('close_price')},{record.get('price_diff') or 0},{record.get('trade_count')}\n")
-        print(f"[{dt.datetime.now()}] 日總結寫入: {filename}, yesterday/{stock_id}.csv")
+            yf.write(f"{now.strftime('%Y-%m-%d')},{total_volume},{total_amount},{open_p},{high_p},{low_p},{close_p},{price_diff},{record.get('trade_count')}\n")
+        print(f"[{dt.datetime.now()}] 日總結寫入: {filename}, yesterday/{stock_id}.csv (總量:{total_volume}, 總額:{total_amount})")
     except Exception as e:
         print(f"[{dt.datetime.now()}] 寫入日總結失敗 {stock_id}: {e}")
 
@@ -3181,7 +3264,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     異步顯示訂閱回應資訊，含市場排程控制。
     09:00-13:25: 正常每 5 秒保存
     13:25-13:30: 最後一次 CSV 保存 (trading→matching 轉換)
-    13:30-14:30: 盤後搓合，僅在數據變更時寫入 CSV
+    13:30-14:30: 盤後搓合，暫停 CSV 輸出
     14:30 後:   寫入日總結 @stockID.csv，暫停 CSV 輸出，保持進程存活供 dashboard 讀取
 
     API 優先機制: 啟動時建立 .api_active 標記檔，模擬器檢測到後自動暫停。
@@ -3282,8 +3365,8 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
-            # ---- 交易時段正常保存; matching 期間僅在有變更時保存 ----
-            csv_phase_ok = phase == 'trading' or (phase == 'matching' and not _csv_frozen)
+            # ---- 交易時段正常保存; matching 期間暫停 CSV 保存 ----
+            csv_phase_ok = phase == 'trading'
             if csv_phase_ok and not subscribe_triggered and current_time - last_save_time >= save_interval:
                 print(f"[{dt.datetime.now()}] 開始保存數據... (phase={phase})")
                 saved_count = 0
@@ -3347,7 +3430,8 @@ async def _save_to_csv_async(stock_id, record):
         with open(filename, 'a', newline='', encoding='utf-8') as f:
             fieldnames = [
                 'timestamp', 'stock_id', 'deal_volume', 'deal_amount', 'open_price', 'high_price', 'low_price',
-                'close_price', 'price_diff', 'trade_count', 'estimated_day_volume', 'pct_of_yesterday_avg',
+                'close_price', 'price_diff', 'trade_count', 'estimated_day_volume', 'volume_label',
+                'pct_of_yesterday_avg',
                 'total_in_volume', 'total_out_volume', 'buy_total_volume', 'sell_total_volume', 'buy_sell_imbalance',
                 'buy_sell_pressure', 'buy_prices', 'buy_volumes', 'sell_prices', 'sell_volumes',
                 'ma5', 'ma10', 'price_momentum', 'byIndexFlag',
@@ -3361,20 +3445,21 @@ async def _save_to_csv_async(stock_id, record):
             row = {
                 'timestamp': record.get('timestamp'),
                 'stock_id': record.get('stock_id'),
-                'deal_volume': record.get('deal_volume'),
-                'deal_amount': record.get('deal_amount'),
+                'deal_volume': record.get('deal_volume') or 0,
+                'deal_amount': record.get('deal_amount') or 0,
                 'open_price': record.get('open_price'),
                 'high_price': record.get('high_price'),
                 'low_price': record.get('low_price'),
                 'close_price': record.get('close_price'),
                 'price_diff': record.get('price_diff'),
                 'trade_count': record.get('trade_count'),
-                'estimated_day_volume': record.get('estimated_day_volume'),
+                'estimated_day_volume': record.get('estimated_day_volume') or 0,
+                'volume_label': record.get('volume_label'),
                 'pct_of_yesterday_avg': record.get('pct_of_yesterday_avg'),
-                'total_in_volume': record.get('total_in_volume'),
-                'total_out_volume': record.get('total_out_volume'),
-                'buy_total_volume': record.get('buy_total_volume'),
-                'sell_total_volume': record.get('sell_total_volume'),
+                'total_in_volume': record.get('total_in_volume') or 0,
+                'total_out_volume': record.get('total_out_volume') or 0,
+                'buy_total_volume': record.get('buy_total_volume') or 0,
+                'sell_total_volume': record.get('sell_total_volume') or 0,
                 'buy_sell_imbalance': record.get('buy_sell_imbalance'),
                 'buy_sell_pressure': record.get('buy_sell_pressure'),
                 'buy_prices': str(record.get('buy_prices', [])),
