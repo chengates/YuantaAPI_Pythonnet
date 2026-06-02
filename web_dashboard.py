@@ -18,6 +18,7 @@ WATCHLIST_PATH = "watchlist.json"
 NAMES_PATH = "stock_names.json"
 _active_watchlist = "自選股1"
 
+#todo:優先權放後面,此方發簡單但無法避免新上市或下市,需要skill來避免,也許已存在,若有請用繁體紀錄使用方式於prd.md
 def load_names():
     if os.path.exists(NAMES_PATH):
         with open(NAMES_PATH, encoding="utf-8") as f:
@@ -124,7 +125,7 @@ async function switchWatchlist(name){
 }
 loadWatchlists();
 function fmt(n,d=2){if(n==null)return'--';return Number(n).toFixed(d);}
-function vol(n){return n!=null?Math.round(n/1000).toLocaleString():'--'}
+function vol(n){return n!=null && n>=0?Math.round(n/1000).toLocaleString():'--'}
 function badge(type){
   const m={large_cap:['大型','type-large'],mid_cap:['中型','type-mid'],
             small_cap:['小型','type-small'],speculative:['投機','type-spec']};
@@ -141,13 +142,16 @@ function tag(label){
 const cards={};
 function cardHTML(s){
   if(s.close_price==null) return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span></h2><div class="row muted">等待資料...</div>`;
-  const ref=s.ref_price!=null?s.ref_price:s.open_price;
-  const cls=ref!=null?(s.close_price>=ref?'up':'down'):'';
-  const limitCls=s.limit_state==='up'?' limit-up':s.limit_state==='down'?' limit-down':'';
+  const ref = s.ref_price != null ? s.ref_price : (s.open_price != null ? s.open_price : null);
+  const cls = (ref !== null && s.close_price !== null)
+    ? (s.close_price > ref ? 'up' : s.close_price < ref ? 'down' : '')
+    : '';
+  const limitCls = s.limit_state === 'up' ? ' limit-up' : s.limit_state === 'down' ? ' limit-down' : '';
   const limitLabel=s.limit_state==='up'?' 漲停':s.limit_state==='down'?' 跌停':'';
-  const pct=s.price_diff&&s.open_price?((s.price_diff/s.open_price)*100).toFixed(2):'--';
-  const inRatio=s.total_in_volume+s.total_out_volume>0
-    ?((s.total_in_volume/(s.total_in_volume+s.total_out_volume))*100).toFixed(1):50;
+  const chgPct=(ref !== null && s.close_price != null && ref !== 0)
+    ?(((s.close_price - ref) / ref) * 100).toFixed(2):'--';
+  const inRatio=(s.total_in_volume || 0)+(s.total_out_volume || 0) > 0
+    ?(((s.total_in_volume || 0)/((s.total_in_volume || 0)+(s.total_out_volume || 0))) * 100).toFixed(1):50;
   const dealAmt=s.deal_amount||0, dealVol=s.deal_volume||0;
   let recs='';
   if(s._records&&s._records.length){
@@ -159,11 +163,11 @@ function cardHTML(s){
   }
   const uid='r'+s.stock_id;
   return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span></h2>
-<div class="price ${cls}${limitCls}">${fmt(s.close_price)} ${limitLabel} <span style="font-size:13px">${pct>0?'+'+pct:pct}%</span></div>
+<div class="price ${cls}${limitCls}">${fmt(s.close_price)} ${limitLabel} <span style="font-size:13px">${chgPct>0?'+'+chgPct:chgPct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
 <div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
-<div class="row"><span>估日量 ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
+<div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
@@ -178,12 +182,22 @@ function render(data){
     if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
     const h=cardHTML(s);if(el._h!==h){el.innerHTML=h;el._h=h;}
   }
+  if(_recsOpen){
+    for(const[id,el] of Object.entries(cards)){
+      const r=el.querySelector('.c-recs');if(r)r.style.display='block';
+    }
+  }
 }
 function summary(data){
   let totalVol=0,totalIn=0,totalOut=0,up=0,down=0;const entries=Object.entries(data);
   for(const[,s] of entries){
-    totalVol+=(s.deal_volume||0);totalIn+=(s.total_in_volume||0);totalOut+=(s.total_out_volume||0);
-    if(s.close_price>=s.open_price) up++; else down++;
+    totalVol += (s.deal_volume||0);
+    totalIn += (s.total_in_volume||0);
+    totalOut += (s.total_out_volume||0);
+    if (s.close_price != null && s.open_price != null) {
+      if (s.close_price > s.open_price) up++;
+      else if (s.close_price < s.open_price) down++;
+    }
   }
   const inPct=totalIn+totalOut>0?Math.round(totalIn/(totalIn+totalOut)*100):50;
   const bar=document.getElementById('summary');
@@ -259,6 +273,11 @@ def read_latest_csv(stock_id: str) -> dict | None:
         deal_volume = _num(row, "deal_volume", int)
         if deal_amount is None and close_price is not None and deal_volume:
             deal_amount = round(close_price * deal_volume, 0)
+        # 若隱含成交價不合理 (>20000 元/股)，視為 API 原始整數金額，正規化
+        if deal_amount is not None and deal_volume and deal_volume > 0:
+            implied = deal_amount / deal_volume
+            if implied > 20000:
+                deal_amount = round(deal_amount / 10000, 0)
         stock_type = row.get("stock_type", "")
         if not stock_type or stock_type == "unknown":
             stock_type = _detect_stock_type(stock_id, close_price)
@@ -272,6 +291,14 @@ def read_latest_csv(stock_id: str) -> dict | None:
             if total_in + total_out > 0:
                 participation_score = round((total_in - total_out) / (total_in + total_out) * 50, 1)
                 participation_label = _score_to_label(participation_score)
+        def _normalize_volume(val):
+            if val is None:
+                return None
+            try:
+                return max(0, int(val))
+            except (TypeError, ValueError):
+                return None
+
         return {
             "stock_id": row.get("stock_id", stock_id),
             "stock_name": get_stock_name(stock_id),
@@ -279,8 +306,8 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "buy_volumes": buy_volumes,
             "sell_prices": sell_prices,
             "sell_volumes": sell_volumes,
-            "buy_total_volume": buy_total_volume,
-            "sell_total_volume": sell_total_volume,
+            "buy_total_volume": max(0, buy_total_volume),
+            "sell_total_volume": max(0, sell_total_volume),
             "buy_sell_imbalance": buy_sell_imbalance,
             "deal_amount": deal_amount,
             "close_price": close_price,
@@ -288,14 +315,15 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "high_price": _normalize_price(_num(row, "high_price")),
             "low_price": _normalize_price(_num(row, "low_price")),
             "price_diff": price_diff,
-            "deal_volume": deal_volume,
+            "deal_volume": _normalize_volume(deal_volume),
             "trade_count": _num(row, "trade_count", int),
-            "total_in_volume": _num(row, "total_in_volume", int),
-            "total_out_volume": _num(row, "total_out_volume", int),
-            "estimated_day_volume": _num(row, "estimated_day_volume", int),
+            "total_in_volume": _normalize_volume(_num(row, "total_in_volume", int)),
+            "total_out_volume": _normalize_volume(_num(row, "total_out_volume", int)),
+            "estimated_day_volume": _normalize_volume(_num(row, "estimated_day_volume", int)),
+            "volume_label": row.get("volume_label", "估日量"),
             "pct_of_yesterday_avg": pct_of_yesterday_avg,
-            "ma5": _num(row, "ma5"),
-            "ma10": _num(row, "ma10"),
+            "ma5": _normalize_price(_num(row, "ma5")),
+            "ma10": _normalize_price(_num(row, "ma10")),
             "stock_type": stock_type,
             "timestamp": row.get("timestamp", ""),
             "participation_score": participation_score,
@@ -309,10 +337,16 @@ def read_latest_csv(stock_id: str) -> dict | None:
 
 def _normalize_price(val):
     """將可能為 API 原始整數的價格正規化為 TWD。
-    台灣個股價格合理範圍 1~10000，若超過 100000 視為原始整數 (/10000)。"""
+    台灣個股價格合理範圍 1~15000，若超過 100000 視為原始整數 (/10000)；
+    0 或負值視為無效，回傳 None。"""
     if val is None:
         return None
-    if abs(val) > 100000:
+    try:
+        if val <= 0:
+            return None
+    except TypeError:
+        return None
+    if abs(val) >= 100000:
         return round(val / 10000, 2)
     return val
 
@@ -338,14 +372,14 @@ def _get_ref_price(stock_id: str, fallback_open=None):
     yst = _normalize_price(entry.get("yst_price"))
     if yst is not None:
         return yst
-    # 2) @stockID.csv 最後一筆 close_price
+    # 2) @stockID.csv 最後一筆收盤價 (支援中英文欄位名)
     path = f"@{stock_id}.csv"
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 rows = list(csv.DictReader(f))
             if rows:
-                yst = _normalize_price(_num(rows[-1], "close_price"))
+                yst = _normalize_price(_num(rows[-1], "收盤價") or _num(rows[-1], "close_price"))
                 if yst is not None:
                     return yst
         except Exception:
@@ -381,7 +415,7 @@ def _calc_limit_state(close_price, stock_id):
         return 'down'
     return None
 
-
+#todo:如果保持此方法,需透過skill每月1~4自動觸發更新,最好放在一個json或csv裡,保持原碼,不須每個月更新,otc易同
 def _detect_stock_type(stock_id: str, price=None) -> str:
     tw50 = {
         '2330', '2317', '2454', '2412', '2881', '2882', '2886', '2891',
@@ -458,13 +492,18 @@ def _recent_rows_api(stock_id: str, n: int = 5) -> list:
     rows = read_recent_rows(stock_id, n)
     records = []
     for r in rows:
+        price = _normalize_price(_num(r, "close_price"))
+        vol = max(0, _num(r, "deal_volume", int) or 0)
+        amt = _num(r, "deal_amount") or 0
+        if amt > 0 and vol > 0 and amt / vol > 20000:
+            amt = round(amt / 10000, 0)
         records.append({
             "time": r.get("timestamp", "")[-8:],
-            "price": _normalize_price(_num(r, "close_price")),
-            "vol": _num(r, "deal_volume", int) or 0,
-            "in_vol": _num(r, "total_in_volume", int) or 0,
-            "out_vol": _num(r, "total_out_volume", int) or 0,
-            "amt": _num(r, "deal_amount") or 0,
+            "price": price,
+            "vol": vol,
+            "in_vol": max(0, _num(r, "total_in_volume", int) or 0),
+            "out_vol": max(0, _num(r, "total_out_volume", int) or 0),
+            "amt": max(0, amt),
         })
     return records
 
@@ -487,6 +526,7 @@ def _empty_card(stock_id: str) -> dict:
             "high_price": None, "low_price": None, "price_diff": None,
             "deal_volume": 0, "deal_amount": None, "trade_count": 0,
             "total_in_volume": 0, "total_out_volume": 0, "estimated_day_volume": 0,
+            "volume_label": "盤前預估量",
             "pct_of_yesterday_avg": None, "ma5": None, "ma10": None,
             "stock_type": "unknown", "participation_score": None,
             "participation_label": "等待資料",
@@ -529,13 +569,18 @@ def api_records():
         rows = read_recent_rows(sid, 5)
         records = []
         for r in rows:
+            price = _normalize_price(_num(r, "close_price"))
+            vol = max(0, _num(r, "deal_volume", int) or 0)
+            amt = _num(r, "deal_amount") or 0
+            if amt > 0 and vol > 0 and amt / vol > 20000:
+                amt = round(amt / 10000, 0)
             records.append({
                 "time": r.get("timestamp", "")[-8:],
-                "price": _num(r, "close_price"),
-                "vol": _num(r, "deal_volume", int) or 0,
-                "in_vol": _num(r, "total_in_volume", int) or 0,
-                "out_vol": _num(r, "total_out_volume", int) or 0,
-                "amt": _num(r, "deal_amount") or 0,
+                "price": price,
+                "vol": vol,
+                "in_vol": max(0, _num(r, "total_in_volume", int) or 0),
+                "out_vol": max(0, _num(r, "total_out_volume", int) or 0),
+                "amt": max(0, amt),
             })
         result[sid] = records
     return jsonify(result)
