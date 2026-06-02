@@ -65,7 +65,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .price{font-size:22px;font-weight:bold}
 .price.limit-up{background:#da3633;color:#fff;padding:2px 8px;border-radius:4px;display:inline-block}
 .price.limit-down{background:#238636;color:#fff;padding:2px 8px;border-radius:4px;display:inline-block}
-.up{color:#3fb950}.down{color:#f85149}.muted{color:#8b949e}
+.up{color:#f85149}.down{color:#3fb950}.muted{color:#8b949e}
 .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:bold}
 .tag-buy{background:#238636;color:#fff}.tag-strong-buy{background:#1f6feb;color:#fff}
 .tag-sell{background:#da3633;color:#fff}.tag-strong-sell{background:#9e6a03;color:#fff}

@@ -334,12 +334,19 @@ class StockQuoteState:
                     vol_col = col
                     break
             if vol_col:
-                self.yesterday_volume = int(df[vol_col].sum())
-                self.prev_average_volume = self.yesterday_volume
-            # 收盤價
+                vol = int(df[vol_col].sum())
+                # 防禦：拒絕負值或天文數字 (>1e10 股不可能)
+                if 0 < vol < 1e10:
+                    self.yesterday_volume = vol
+                    self.prev_average_volume = vol
+                else:
+                    self.yesterday_volume = None
+                    self.prev_average_volume = None
+            # 收盤價 (含正規化)
             for col in ["收盤價", "close_price"]:
                 if col in df.columns:
-                    self.yesterday_close = float(df[col].iloc[-1])
+                    raw = float(df[col].iloc[-1])
+                    self.yesterday_close = raw / 10000.0 if abs(raw) > 100000 else raw
                     break
         except Exception:
             pass
