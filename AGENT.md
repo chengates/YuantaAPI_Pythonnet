@@ -118,4 +118,5 @@ error\error.log
 | 1.5 | 2026-06-03 | 修復：int32 溢位 — 新增 `to_uint32()` 防護 API 回傳負值成交量；僵屍 `.api_active` 旗標偵測與自動清除；`@stockID.csv` 日總結重建（10 檔）、`yesterday/` 備份建立、`stock_ref.json` 擴充 |
 | 1.6 | 2026-06-03 | 修復：`run.py` 雙開防護 — Kernel32 `OpenProcess` 檢查 PID 存活，拒絕重複啟動避免 DLL 鎖定當機；`web_dashboard.py` 漲跌停誤判 — `_get_limit_prices()` 驗證 `up_price > 昨收 > down_price`，不合法自動改用計算值 |
 | 1.7 | 2026-06-03 | 修復：CSV 成交量全為 0 — Watchlist flags 4/6 累積量取代失效的 byTemp 29，內外盤 ×1000 張→股，5 秒區間 delta 快照分離；OTC 股票 MarketNo 自動判斷（`_stock_market_no()`）；`GetUInt()`→`GetInt()` 對齊 IronPython；`build_save_record` 放寬條件納入五檔推斷 OHLC；CSV 欄位位移修復 |
+| 1.8 | 2026-06-03 | 修復：`fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `﻿日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料 |
 
