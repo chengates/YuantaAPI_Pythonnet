@@ -56,6 +56,16 @@ SUBSCRIPTION_STATE = {
     'event_counts': {},
 }
 
+def to_uint32(v):
+    """將 C# API 可能溢位的 int32 值轉為 Python 無號整數。
+    API 以 signed int32 儲存累積量，超過 2^31-1 (2,147,483,647) 時會變負值。
+    此函數將負值還原為正確的 uint32 值 (0 ~ 4,294,967,295)。"""
+    if v is None:
+        return 0
+    if v < 0:
+        return v + 0x100000000  # 2^32
+    return v
+
 class StockQuoteState:
     def __init__(self, stock_id: str, market_no=None):
         self.stock_id = stock_id
@@ -71,6 +81,9 @@ class StockQuoteState:
         self.total_in_volume = 0
         self.total_out_volume = 0
         self.total_volume = 0
+        self._snap_total_vol = 0   # 區間快照：上次 save 時的累積量
+        self._snap_total_in = 0    # 區間快照：上次 save 時的累積內盤量
+        self._snap_total_out = 0   # 區間快照：上次 save 時的累積外盤量
         self.trade_count = 0
         self.open_price = None
         self.high_price = None
@@ -118,6 +131,8 @@ class StockQuoteState:
                 self.total_in_volume > 0,
                 self.total_out_volume > 0,
                 self.trade_count > 0,
+                bool(self.buy_prices),  # 至少收到五檔報價
+                self.close_price is not None,  # 已從五檔推斷出 OHLC
             ]
         )
 
@@ -127,11 +142,12 @@ class StockQuoteState:
         self.latest_timestamp = self.last_update
 
         if total_out is not None:
-            self.total_out_volume = total_out
+            self.total_out_volume = to_uint32(total_out)
         if total_in is not None:
-            self.total_in_volume = total_in
+            self.total_in_volume = to_uint32(total_in)
         # 只更新成交量，不覆蓋 OHLC — 五檔 _infer_prices_from_depth 已提供更準確的 TWD 價格
         if deal_volume is not None:
+            deal_volume = to_uint32(deal_volume)
             self.last_deal_volume = deal_volume
             self.total_volume += deal_volume
             self.trade_count += 1
@@ -153,6 +169,7 @@ class StockQuoteState:
         if deal_price is not None:
             self.last_deal_price = deal_price
         if deal_volume is not None:
+            deal_volume = to_uint32(deal_volume)
             self.last_deal_volume = deal_volume
             self.total_volume += deal_volume
             self.trade_count += 1
@@ -179,6 +196,12 @@ class StockQuoteState:
         self.last_update = timestamp or time.time()
         self.latest_timestamp = self.last_update
         self.extra_data[byIndexFlag] = int_value
+        # Watchlist 指定欄位（實測: 值單位為「張」，非「股」）:
+        # 4=累計外盤量(張), 6=累計內盤量(張)
+        if byIndexFlag == '4':
+            self.total_out_volume = to_uint32(int_value) * 1000
+        elif byIndexFlag == '6':
+            self.total_in_volume = to_uint32(int_value) * 1000
 
     def _update_estimates(self):
         """盤中預估量：以 (已過分鐘數 / 250) * 昨日量 * 隨機波動因子估算。
@@ -192,7 +215,15 @@ class StockQuoteState:
             self.estimated_day_volume = self.prev_average_volume
             self.volume_label = "盤前預估量"
         elif now >= market_close:
-            self.estimated_day_volume = self.total_volume if self.total_volume else self.prev_average_volume
+            # 盤後總量：優先用 Watchlist 內外盤累積量（來自 API），StockTick 逐筆量太小
+            actual_volume = self.total_in_volume + self.total_out_volume
+            if actual_volume > 0:
+                self.estimated_day_volume = actual_volume
+                self.total_volume = actual_volume  # 同步更新 total_volume
+            elif self.total_volume:
+                self.estimated_day_volume = self.total_volume
+            else:
+                self.estimated_day_volume = self.prev_average_volume
             self.volume_label = "盤後總量"
         else:
             elapsed = max((now - market_open).total_seconds() / 60.0, 1.0)
@@ -424,13 +455,30 @@ class StockQuoteState:
         )
 
     def build_save_record(self):
-        if self.latest_timestamp is None or not self.has_data():
+        if self.latest_timestamp is None:
             return None
 
         self._infer_prices_from_depth()
+        # 放寬條件：五檔推斷的 OHLC 也算有效資料（適用於無 Watchlist 成交量的 OTC 股票）
+        if not self.has_data() and self.close_price is None:
+            return None
+
+        # 計算 5 秒區間量差（累積量的 delta），而非最後一筆 tick 值
+        interval_vol = max(0, self.total_volume - self._snap_total_vol)
+        interval_in = max(0, self.total_in_volume - self._snap_total_in)
+        interval_out = max(0, self.total_out_volume - self._snap_total_out)
+        # 快照更新移至 commit_save_snapshot()，避免 to_display_dict() 頻繁重置快照
+
         deal_amount = None
-        if self.last_deal_price is not None and self.last_deal_volume is not None:
-            deal_amount = self.last_deal_price * self.last_deal_volume
+        deal_price = self.last_deal_price or self.close_price
+        # 正規化：API 原始成交價 >100000 需 /10000
+        if deal_price is not None and deal_price >= 100000:
+            deal_price = deal_price / 10000.0
+        if deal_price is not None and (interval_in + interval_out) > 0:
+            deal_amount = deal_price * (interval_in + interval_out)
+
+        # 區間成交量：取 Watchlist 內外盤 delta 與 StockTick 累積 delta 的最大值
+        interval_deal_vol = max(interval_in + interval_out, interval_vol)
 
         buy_sell_total = self.total_in_volume + self.total_out_volume
         buy_sell_ratio = None
@@ -450,7 +498,8 @@ class StockQuoteState:
         return {
             'timestamp': dt.datetime.fromtimestamp(self.latest_timestamp).strftime('%Y%m%d %H:%M:%S'),
             'stock_id': self.stock_id,
-            'deal_volume': self.last_deal_volume,
+            'deal_volume': interval_deal_vol,  # 取 Watchlist 與 StockTick 兩者 delta 的最大值
+            'last_tick_volume': self.last_deal_volume,  # 保留最後一筆 tick 量供參考
             'deal_amount': deal_amount,
             'open_price': self.open_price,
             'high_price': self.high_price,
@@ -461,8 +510,11 @@ class StockQuoteState:
             'estimated_day_volume': self.estimated_day_volume,
             'volume_label': self.volume_label,
             'pct_of_yesterday_avg': self.pct_of_yesterday_avg,
-            'total_in_volume': self.total_in_volume,
-            'total_out_volume': self.total_out_volume,
+            'total_in_volume': interval_in,   # 改為區間內盤量
+            'total_out_volume': interval_out,  # 改為區間外盤量
+            'cumulative_in_volume': self.total_in_volume,   # 保留累積值
+            'cumulative_out_volume': self.total_out_volume,  # 保留累積值
+            'cumulative_volume': self.total_volume,          # 保留累積值
             'buy_total_volume': buy_total_volume,
             'sell_total_volume': sell_total_volume,
             'buy_sell_imbalance': buy_sell_imbalance,
@@ -484,6 +536,12 @@ class StockQuoteState:
 
     def to_display_dict(self):
         return self.build_save_record()
+
+    def commit_save_snapshot(self):
+        """在 CSV 寫入後更新快照，確保區間 delta 只在真正保存時才重置。"""
+        self._snap_total_vol = self.total_volume
+        self._snap_total_in = self.total_in_volume
+        self._snap_total_out = self.total_out_volume
 
 
 def get_quote_state(stock_id: str, market_no=None) -> StockQuoteState:
@@ -2279,13 +2337,17 @@ def SubscribeWatclistAll_Out(abyData):
                 second=yuantaTime.bytSec,
                 microsecond=yuantaTime.ushtMSec * 1000
             ).timestamp()
-            total_out = dataGetter.GetUInt()
-            total_in = dataGetter.GetUInt()
+            total_out = to_uint32(dataGetter.GetInt())
+            total_in = to_uint32(dataGetter.GetInt())
             deal_price = dataGetter.GetInt()
-            deal_vol = dataGetter.GetUInt()
-            total_vol = dataGetter.GetUInt()
+            deal_vol = to_uint32(dataGetter.GetInt())
+            total_vol = to_uint32(dataGetter.GetInt())
             total_amt = dataGetter.GetLong()
             state.update_watchlist_all(byTemp, timestamp=timestamp, total_out=total_out, total_in=total_in, deal_price=deal_price, deal_volume=deal_vol)
+            # 使用 API 回傳的累積總量，而非逐筆 tick 累加（tick 每筆僅 1~5 股）
+            state.total_in_volume = total_in
+            state.total_out_volume = total_out
+            state.total_volume = total_vol
             state.extra_data['total_vol'] = total_vol
             state.extra_data['total_amt'] = total_amt
             result += f"WatchlistAll {stock_id} 29: out={total_out}, in={total_in}, deal={deal_price}@{deal_vol}, total_vol={total_vol}, total_amt={total_amt}\r\n"
@@ -2376,11 +2438,7 @@ def SubscribeWatchlist_Out(abyData):
         market_no = dataGetter.GetByte()
         stock_id = dataGetter.GetStr(12)
         byIndexFlag = '{0}'.format(dataGetter.GetByte())
-        # Watchlist 指定欄位訂閱中，某些索引值（例如成交量）為無符號整數
-        if byIndexFlag == '7':
-            int_value = dataGetter.GetUInt()
-        else:
-            int_value = dataGetter.GetInt()
+        int_value = to_uint32(dataGetter.GetInt())
 
         state = get_quote_state(stock_id, market_no)
         state.update_watchlist_field(byIndexFlag, int_value)
@@ -2418,7 +2476,7 @@ def SubscribeStocktick_out(abyData):
             buy_price = dataGetter.GetInt()
             sell_price = dataGetter.GetInt()
             deal_price = dataGetter.GetInt()
-            deal_volume = dataGetter.GetUInt()
+            deal_volume = to_uint32(dataGetter.GetInt())
             in_out_flag = str(dataGetter.GetByte())
             detail_type = str(dataGetter.GetByte())
             state = get_quote_state(stock_id, market_no)
@@ -2846,21 +2904,24 @@ except Exception as e:
 def SubscribeWatchlistAll_api(yuanta):
     lstWatchlistAll = List[WatchlistAll]()
     for code in get_watchlist_stocks():
-        watch = WatchlistAll()
-        watch.MarketNo = 1
-        watch.StockCode = code
-        lstWatchlistAll.Add(watch)
-    yuanta.SubscribeWatchlistAll(lstWatchlistAll) 
-    
+        # 雙市場訂閱：TSE(1) + OTC(2)，API 只對正確市場推送，無需手動判斷
+        for mkt in (1, 2):
+            watch = WatchlistAll()
+            watch.MarketNo = mkt
+            watch.StockCode = code
+            lstWatchlistAll.Add(watch)
+    yuanta.SubscribeWatchlistAll(lstWatchlistAll)
+
 #取消訂閱報價
 #UnsubWatchlistAll 98.10.70.10
 def UnsubWatchlistAll_api(yuanta):
     lstWatchlistAll = List[WatchlistAll]()
     for code in get_watchlist_stocks():
-        watch = WatchlistAll()
-        watch.MarketNo = 1  #個股
-        watch.StockCode = code
-        lstWatchlistAll.Add(watch)
+        for mkt in (1, 2):
+            watch = WatchlistAll()
+            watch.MarketNo = mkt
+            watch.StockCode = code
+            lstWatchlistAll.Add(watch)
     yuanta.UnsubscribeWatchlistAll(lstWatchlistAll)    
 
 '''
@@ -2896,10 +2957,11 @@ def SubscribeFiveTick_api(yuanta):
         ft.StockCode = code
         lstFiveTick.Add(ft)
     for code in get_watchlist_stocks():
-        ft = FiveTickA()
-        ft.MarketNo = 1
-        ft.StockCode = code
-        lstFiveTick.Add(ft)
+        for mkt in (1, 2):
+            ft = FiveTickA()
+            ft.MarketNo = mkt
+            ft.StockCode = code
+            lstFiveTick.Add(ft)
     yuanta.SubscribeFiveTickA(lstFiveTick)
 
 #取消訂閱五檔報價
@@ -2918,11 +2980,14 @@ def UnSubscribeFiveTick_api(yuanta):
 def SubscribeWatchlist_api(yuanta):
     lstWatchlist = List[Watchlist]()
     for code in get_watchlist_stocks():
-        watch = Watchlist()
-        watch.IndexFlag = 7 #IndexFlag訂閱索引值
-        watch.MarketNo = 1
-        watch.StockCode = code
-        lstWatchlist.Add(watch)
+        # 訂閱多個欄位: 4=累計外盤量, 6=累計內盤量, 7=累計成交量
+        for flag in (4, 6, 7):
+            for mkt in (1, 2):
+                watch = Watchlist()
+                watch.IndexFlag = flag
+                watch.MarketNo = mkt
+                watch.StockCode = code
+                lstWatchlist.Add(watch)
     yuanta.SubscribeWatchlist(lstWatchlist) 
 
 #取消訂閱報價表指定欄位 
@@ -2930,33 +2995,36 @@ def SubscribeWatchlist_api(yuanta):
 def UnSubscribeWatchlist_api(yuanta):
     lstWatchlist = List[Watchlist]()
     for code in get_watchlist_stocks():
-        watch = Watchlist()
-        watch.IndexFlag = 7 #IndexFlag訂閱索引值
-        watch.MarketNo = 1
-        watch.StockCode = code
-        lstWatchlist.Add(watch)
+        for mkt in (1, 2):
+            watch = Watchlist()
+            watch.IndexFlag = 7
+            watch.MarketNo = mkt
+            watch.StockCode = code
+            lstWatchlist.Add(watch)
     yuanta.UnsubscribeWatchlist(lstWatchlist) 
 
 #訂閱分時明細
 #StockTick 210.10.40.10
 def SubscribeStocktick_api(yuanta):
-    lstStocktick = List[StockTick]()    
+    lstStocktick = List[StockTick]()
     for code in get_watchlist_stocks():
-        stocktick = StockTick()
-        stocktick.MarketNo =  1
-        stocktick.StockCode = code
-        lstStocktick.Add(stocktick)
+        for mkt in (1, 2):
+            stocktick = StockTick()
+            stocktick.MarketNo = mkt
+            stocktick.StockCode = code
+            lstStocktick.Add(stocktick)
     yuanta.SubscribeStockTick(lstStocktick)
 
-#取消訂閱分時明細 
+#取消訂閱分時明細
 #UnSubscribeStocktick210.10.40.10
 def UnSubscribeStocktick_api(yuanta):
-    lstStocktick = List[StockTick]()    
+    lstStocktick = List[StockTick]()
     for code in get_watchlist_stocks():
-        stocktick = StockTick()
-        stocktick.MarketNo =  1
-        stocktick.StockCode = code
-        lstStocktick.Add(stocktick)
+        for mkt in (1, 2):
+            stocktick = StockTick()
+            stocktick.MarketNo = mkt
+            stocktick.StockCode = code
+            lstStocktick.Add(stocktick)
     yuanta.UnsubscribeStocktick(lstStocktick) 
     
 #讀取報價
@@ -3292,6 +3360,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     saved_records = []
     last_save_time = time.time()
     last_subscribe_time = time.time()
+    last_watchlist_subscribe_time = time.time()  # WatchlistAll/Stocktick 獨立週期
     prev_phase = _market_phase()
     global _daily_summary_written
     _csv_frozen = False  # 14:30 後凍結 CSV 寫入
@@ -3323,6 +3392,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                         record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
                         saved_records.append(record)
                         await _save_to_csv_async(stock_id, record)
+                        state.commit_save_snapshot()
                         saved_count += 1
                         state.last_saved_timestamp = state.latest_timestamp
                     if saved_count > 0:
@@ -3355,6 +3425,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
                     saved_records.append(record)
                     await _save_to_csv_async(stock_id, record)
+                    state.commit_save_snapshot()
                     saved_count += 1
                     state.last_saved_timestamp = state.latest_timestamp
                 if saved_count > 0:
@@ -3373,6 +3444,16 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
+            # 每 60 秒重新訂閱全部四種訂閱，防止個股（尤其 OTC）訂閱過期掉線
+            if current_time - last_watchlist_subscribe_time >= 60 and phase in ('trading', 'matching'):
+                if 'objYuantaOneAPI' in globals():
+                    SubscribeWatchlistAll_api(objYuantaOneAPI)
+                    SubscribeWatchlist_api(objYuantaOneAPI)
+                    SubscribeFiveTick_api(objYuantaOneAPI)
+                    SubscribeStocktick_api(objYuantaOneAPI)
+                    last_watchlist_subscribe_time = current_time
+                    print(f"[{dt.datetime.now()}] 週期性重新訂閱全部 (WatchlistAll+Watchlist+FiveTick+Stocktick)")
+
             # ---- 交易時段正常保存; matching 期間暫停 CSV 保存 ----
             csv_phase_ok = phase == 'trading'
             if csv_phase_ok and not subscribe_triggered and current_time - last_save_time >= save_interval:
@@ -3390,6 +3471,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     record['timestamp'] = f"{now.year}{now.month:02d}{now.day:02d} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
                     saved_records.append(record)
                     await _save_to_csv_async(stock_id, record)
+                    state.commit_save_snapshot()
                     saved_count += 1
                     state.last_saved_timestamp = state.latest_timestamp
                 if saved_count > 0:

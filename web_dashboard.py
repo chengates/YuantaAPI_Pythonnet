@@ -83,6 +83,7 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .pcr-row label{font-size:11px;color:#8b949e}
 .pcr-result{font-size:12px;margin-top:8px;line-height:1.6}
 .toggle-btn{background:none;border:none;color:#58a6ff;cursor:pointer;font-size:13px;padding:4px 0}
+.c-recs{display:none}.c-recs.open{display:block}
 .depth-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
 .depth-table th{color:#8b949e;font-weight:normal;text-align:right;padding:1px 4px}
 .depth-table td{text-align:right;padding:1px 4px;font-variant-numeric:tabular-nums}
@@ -157,7 +158,7 @@ function cardHTML(s){
   if(s._records&&s._records.length){
     recs='<table class="depth-table" style="margin-top:4px"><tr><th>時間</th><th>成交價</th><th>量(張)</th><th>內盤</th><th>外盤</th><th>金額</th></tr>';
     for(const r of s._records){
-      recs+=`<tr><td>${r.time||'--'}</td><td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td><td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td><td>${(r.amt/1e8).toFixed(2)}億</td></tr>`;
+      recs+=`<tr><td>${r.time||'--'}</td><td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td><td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td><td>${(r.amt/1e4).toFixed(2)}萬</td></tr>`;
     }
     recs+='</table>';
   }
@@ -171,8 +172,8 @@ function cardHTML(s){
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
-<div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e8).toFixed(2)}億 / ${vol(dealVol)}張</span></div>
-<div class="c-recs" style="display:none">${recs}</div>`;
+<div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e4).toFixed(2)}萬 / ${vol(dealVol)}張</span></div>
+<div class="c-recs">${recs}</div>`;
 }
 function render(data){
   const g=document.getElementById('grid'), active=new Set(Object.keys(data));
@@ -182,10 +183,8 @@ function render(data){
     if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
     const h=cardHTML(s);if(el._h!==h){el.innerHTML=h;el._h=h;}
   }
-  if(_recsOpen){
-    for(const[id,el] of Object.entries(cards)){
-      const r=el.querySelector('.c-recs');if(r)r.style.display='block';
-    }
+  for(const[id,el] of Object.entries(cards)){
+    const r=el.querySelector('.c-recs');if(r)r.classList.toggle('open',_recsOpen);
   }
 }
 function summary(data){
@@ -229,7 +228,7 @@ function toggleAllRecords(){
   _recsOpen=!_recsOpen;
   document.getElementById('recBtn').textContent=_recsOpen?'▾ 全部價量紀錄':'▸ 全部價量紀錄';
   for(const[id,el] of Object.entries(cards)){
-    const r=el.querySelector('.c-recs');if(r)r.style.display=_recsOpen?'block':'none';
+    const r=el.querySelector('.c-recs');if(r)r.classList.toggle('open',_recsOpen);
   }
 }
 const es=new EventSource('/stream');
@@ -299,7 +298,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
             except (TypeError, ValueError):
                 return None
 
-        return {
+        d = {
             "stock_id": row.get("stock_id", stock_id),
             "stock_name": get_stock_name(stock_id),
             "buy_prices": buy_prices,
@@ -331,10 +330,16 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "ref_price": _get_ref_price(stock_id, open_price),
             "limit_state": _calc_limit_state(close_price, stock_id),
         }
+        # 盤後 (14:30+) 用 @stockID.csv 的真實總量覆蓋估算值
+        actual_vol = _get_actual_day_volume(stock_id)
+        if actual_vol is not None:
+            d["estimated_day_volume"] = actual_vol
+            d["volume_label"] = "盤後總量"
+        return d
     except Exception:
         return None
 
-
+#val必須為無符號,避免負值影響計算,目前方法存在瑕疵,為 bug 原因之一需修正
 def _normalize_price(val):
     """將可能為 API 原始整數的價格正規化為 TWD。
     台灣個股價格合理範圍 1~15000，若超過 100000 視為原始整數 (/10000)；
@@ -352,7 +357,7 @@ def _normalize_price(val):
 
 
 def _load_stock_ref() -> dict:
-    """從 stock_ref.json 載入 API 查詢的昨收/漲停/跌停參考價。"""
+    """從 stock_ref.json 載入 API 查詢的昨收/漲停/跌停參考價。建議程式入口先檢查自選股的ref_price是否存在昨收,不存在則使用此工具更新方法"""
     path = "stock_ref.json"
     if not os.path.exists(path):
         return {}
@@ -372,7 +377,7 @@ def _get_ref_price(stock_id: str, fallback_open=None):
     yst = _normalize_price(entry.get("yst_price"))
     if yst is not None:
         return yst
-    # 2) @stockID.csv 最後一筆收盤價 (支援中英文欄位名)
+    # 2) @stockID.csv 最後一筆收盤價 (支援中英文欄位名),若檔案時間屬性不合理就可很快判斷,需要外部工具修護正確資料.建議程式入口先檢查
     path = f"@{stock_id}.csv"
     if os.path.exists(path):
         try:
@@ -389,16 +394,18 @@ def _get_ref_price(stock_id: str, fallback_open=None):
 
 
 def _get_limit_prices(stock_id: str):
-    """從 stock_ref.json 取得漲停價/跌停價。若無 API 資料則以昨收價推算。
+    """從 stock_ref.json 取得漲停價/跌停價。若無 API 資料或資料不合理則以昨收價推算。
     回傳 (up_price, down_price) 或 (None, None)。"""
+    yst = _get_ref_price(stock_id)
     ref = _load_stock_ref()
     entry = ref.get(stock_id, {})
     up_price = _normalize_price(entry.get("up_price"))
     down_price = _normalize_price(entry.get("down_price"))
-    if up_price is not None and down_price is not None:
-        return up_price, down_price
+    # 驗證 stock_ref.json 的漲跌停價是否合理：漲停 > 昨收 > 跌停
+    if up_price is not None and down_price is not None and yst is not None:
+        if up_price > yst and down_price < yst:
+            return up_price, down_price
     # 降級: 用昨收價 * 1.10 / 0.90 推算
-    yst = _get_ref_price(stock_id)
     if yst is not None and yst > 0:
         return round(yst * 1.10, 2), round(yst * 0.90, 2)
     return None, None
@@ -415,7 +422,7 @@ def _calc_limit_state(close_price, stock_id):
         return 'down'
     return None
 
-#todo:如果保持此方法,需透過skill每月1~4自動觸發更新,最好放在一個json或csv裡,保持原碼,不須每個月更新,otc易同
+#todo:如果保持此方法,需透過skill每月1~4自動觸發更新,建議,最好放在一個json或csv裡,保持原碼,不被變更及便於計算市值,不須每個月更新,otc易同
 def _detect_stock_type(stock_id: str, price=None) -> str:
     tw50 = {
         '2330', '2317', '2454', '2412', '2881', '2882', '2886', '2891',
@@ -489,23 +496,38 @@ def poll_worker():
 
 
 def _recent_rows_api(stock_id: str, n: int = 5) -> list:
-    rows = read_recent_rows(stock_id, n)
+    # 往前多讀一些，確保低量股也能湊滿 n 列有成交量的資料
+    rows = read_recent_rows(stock_id, max(n * 6, 30))
     records = []
     for r in rows:
         price = _normalize_price(_num(r, "close_price"))
         vol = max(0, _num(r, "deal_volume", int) or 0)
+        # int32 溢位防護: 負值轉無號 (> 2^31 視為溢位)
+        if vol < 0:
+            vol = vol + 0x100000000
         amt = _num(r, "deal_amount") or 0
+        if amt < 0:
+            amt = amt + 0x100000000
         if amt > 0 and vol > 0 and amt / vol > 20000:
             amt = round(amt / 10000, 0)
+        in_vol = max(0, _num(r, "total_in_volume", int) or 0)
+        out_vol = max(0, _num(r, "total_out_volume", int) or 0)
+        if in_vol < 0:
+            in_vol = in_vol + 0x100000000
+        if out_vol < 0:
+            out_vol = out_vol + 0x100000000
+        # 跳過完全無成交量的列（內外盤區間 delta 為 0）
+        if vol <= 0 and in_vol <= 0 and out_vol <= 0:
+            continue
         records.append({
             "time": r.get("timestamp", "")[-8:],
             "price": price,
             "vol": vol,
-            "in_vol": max(0, _num(r, "total_in_volume", int) or 0),
-            "out_vol": max(0, _num(r, "total_out_volume", int) or 0),
+            "in_vol": in_vol,
+            "out_vol": out_vol,
             "amt": max(0, amt),
         })
-    return records
+    return records[-n:] if len(records) > n else records  # 不足 n 列就顯示實際有的
 
 
 def read_recent_rows(stock_id: str, n: int = 5) -> list:
@@ -518,6 +540,29 @@ def read_recent_rows(stock_id: str, n: int = 5) -> list:
         return rows[-n:]
     except Exception:
         return []
+
+
+def _get_actual_day_volume(stock_id: str):
+    """盤後從 @stockID.csv 讀取當日實際總量，用於覆蓋 5 秒 CSV 的 estimated_day_volume。"""
+    from datetime import datetime
+    now = datetime.now()
+    if now.hour < 14 or (now.hour == 14 and now.minute < 30):
+        return None
+    path = f"@{stock_id}.csv"
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            rows = list(csv.DictReader(f))
+        today = now.strftime("%Y%m%d")
+        for r in reversed(rows):
+            if r.get("日期", "") == today or r.get("date", "") == today:
+                vol = _num(r, "成交股數") or _num(r, "total_volume")
+                if vol is not None and vol > 0:
+                    return int(vol)
+        return None
+    except Exception:
+        return None
 
 
 def _empty_card(stock_id: str) -> dict:
