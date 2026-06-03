@@ -1,0 +1,1034 @@
+[
+  {
+    "file": "2317.csv",
+    "rows": 7465,
+    "price_suspects": 7421,
+    "volume_suspects": 5733,
+    "negative_prices": 0,
+    "negative_volumes": 4387,
+    "price_scale_candidates": 7421,
+    "issue_samples": [
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 2741,
+          "sell_total_volume": 3608,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 2670000,
+          "close_price": 2670000,
+          "open_price": 2672500.0,
+          "total_in_volume": 11476,
+          "total_out_volume": 17223,
+          "estimated_day_volume": 8,
+          "trade_count": 3,
+          "deal_volume": 1,
+          "high_price": 2672500.0,
+          "low_price": 2670000
+        }
+      },
+      {
+        "row_number": 46,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 2750,
+          "sell_total_volume": 3630,
+          "ma10": null,
+          "ma5": 2671000.0,
+          "deal_amount": 8010000,
+          "close_price": 2670000,
+          "open_price": 2672500.0,
+          "total_in_volume": 11482,
+          "total_out_volume": 17225,
+          "estimated_day_volume": -6077783852,
+          "trade_count": 12,
+          "deal_volume": 3,
+          "high_price": 2675000,
+          "low_price": 2670000
+        }
+      },
+      {
+        "row_number": 47,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 2735,
+          "sell_total_volume": 3651,
+          "ma10": null,
+          "ma5": 2672000.0,
+          "deal_amount": 2670000,
+          "close_price": 2670000,
+          "open_price": 2672500.0,
+          "total_in_volume": 11483,
+          "total_out_volume": 17231,
+          "estimated_day_volume": -30359085418,
+          "trade_count": 21,
+          "deal_volume": 1,
+          "high_price": 2675000,
+          "low_price": 2670000
+        }
+      },
+      {
+        "row_number": 48,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 2730,
+          "sell_total_volume": 3669,
+          "ma10": 2671000.0,
+          "ma5": 2670000.0,
+          "deal_amount": 2670000,
+          "close_price": 2670000,
+          "open_price": 2672500.0,
+          "total_in_volume": 11488,
+          "total_out_volume": 17231,
+          "estimated_day_volume": -30329309895,
+          "trade_count": 32,
+          "deal_volume": 1,
+          "high_price": 2675000,
+          "low_price": 2670000
+        }
+      },
+      {
+        "row_number": 49,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 2725,
+          "sell_total_volume": 3667,
+          "ma10": 2671500.0,
+          "ma5": 2672000.0,
+          "deal_amount": -5744518755725000,
+          "close_price": 2675000,
+          "open_price": 2672500.0,
+          "total_in_volume": 11490,
+          "total_out_volume": 17234,
+          "estimated_day_volume": -48488850500,
+          "trade_count": 43,
+          "deal_volume": -2147483647,
+          "high_price": 2675000,
+          "low_price": 2670000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能資料抓取應為uint或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "2330.csv",
+    "rows": 7458,
+    "price_suspects": 7414,
+    "volume_suspects": 4210,
+    "negative_prices": 0,
+    "negative_volumes": 5263,
+    "price_scale_candidates": 7414,
+    "issue_samples": [
+      {
+        "row_number": 2,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 20237,
+          "sell_total_volume": 10994,
+          "ma10": 2240.66,
+          "ma5": 2338.22,
+          "deal_amount": 1119795055.0,
+          "close_price": 2313.76,
+          "open_price": 2314.98,
+          "total_in_volume": 209777,
+          "total_out_volume": 274195,
+          "estimated_day_volume": 14519160,
+          "trade_count": 1404,
+          "deal_volume": 483972,
+          "high_price": 2314.98,
+          "low_price": 2313.76
+        }
+      },
+      {
+        "row_number": 7,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 12857,
+          "sell_total_volume": 22220,
+          "ma10": 2388.9,
+          "ma5": 2327.37,
+          "deal_amount": 1045435108.0,
+          "close_price": 2312.93,
+          "open_price": 2314.98,
+          "total_in_volume": 200324,
+          "total_out_volume": 251672,
+          "estimated_day_volume": 13559880,
+          "trade_count": 215,
+          "deal_volume": 451996,
+          "high_price": 2315.15,
+          "low_price": 2312.93
+        }
+      },
+      {
+        "row_number": 16,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 84822,
+          "sell_total_volume": 12023,
+          "ma10": 2252.35,
+          "ma5": 2319.66,
+          "deal_amount": 1067362136.0,
+          "close_price": 2314.28,
+          "open_price": 2314.98,
+          "total_in_volume": 237692,
+          "total_out_volume": 223515,
+          "estimated_day_volume": 13836210,
+          "trade_count": 1550,
+          "deal_volume": 461207,
+          "high_price": 2315.15,
+          "low_price": 2312.6
+        }
+      },
+      {
+        "row_number": 39,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 65235,
+          "sell_total_volume": 10116,
+          "ma10": 2283.16,
+          "ma5": 2307.5,
+          "deal_amount": 1022752783.0,
+          "close_price": 2316.31,
+          "open_price": 2315.39,
+          "total_in_volume": 202058,
+          "total_out_volume": 239486,
+          "estimated_day_volume": 13246320,
+          "trade_count": 1189,
+          "deal_volume": 441544,
+          "high_price": 2316.31,
+          "low_price": 2313.5
+        }
+      },
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 2270,
+          "sell_total_volume": 4716,
+          "ma10": null,
+          "ma5": 23400000.0,
+          "deal_amount": 23400000,
+          "close_price": 23400000,
+          "open_price": 23400000,
+          "total_in_volume": 5272,
+          "total_out_volume": 10183,
+          "estimated_day_volume": -73005148825,
+          "trade_count": 21,
+          "deal_volume": 1,
+          "high_price": 23400000,
+          "low_price": 23400000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型為應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "2344.csv",
+    "rows": 7406,
+    "price_suspects": 7362,
+    "volume_suspects": 5809,
+    "negative_prices": 0,
+    "negative_volumes": 5258,
+    "price_scale_candidates": 7362,
+    "issue_samples": [
+      {
+        "row_number": 41,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 23438,
+          "sell_total_volume": 13179,
+          "ma10": 155.77,
+          "ma5": 155.9,
+          "deal_amount": 70435363.0,
+          "close_price": 154.96,
+          "open_price": 155.03,
+          "total_in_volume": 207378,
+          "total_out_volume": 247161,
+          "estimated_day_volume": 13636170,
+          "trade_count": 472,
+          "deal_volume": 454539,
+          "high_price": 155.03,
+          "low_price": 154.96
+        }
+      },
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 7029,
+          "sell_total_volume": 4681,
+          "ma10": 1533500.0,
+          "ma5": 1534000.0,
+          "deal_amount": 1535000,
+          "close_price": 1535000,
+          "open_price": 1535000,
+          "total_in_volume": 74930,
+          "total_out_volume": 94435,
+          "estimated_day_volume": -66921386730,
+          "trade_count": 41,
+          "deal_volume": 1,
+          "high_price": 1535000,
+          "low_price": 1530000
+        }
+      },
+      {
+        "row_number": 46,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 5362,
+          "sell_total_volume": 6402,
+          "ma10": 1535500.0,
+          "ma5": 1536000.0,
+          "deal_amount": 1540000,
+          "close_price": 1540000,
+          "open_price": 1535000,
+          "total_in_volume": 74945,
+          "total_out_volume": 95102,
+          "estimated_day_volume": -151944593649,
+          "trade_count": 95,
+          "deal_volume": 1,
+          "high_price": 1540000,
+          "low_price": 1530000
+        }
+      },
+      {
+        "row_number": 47,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 5395,
+          "sell_total_volume": 6554,
+          "ma10": 1537000.0,
+          "ma5": 1537000.0,
+          "deal_amount": 1535000,
+          "close_price": 1535000,
+          "open_price": 1535000,
+          "total_in_volume": 74953,
+          "total_out_volume": 95106,
+          "estimated_day_volume": -176082691968,
+          "trade_count": 120,
+          "deal_volume": 1,
+          "high_price": 1540000,
+          "low_price": 1530000
+        }
+      },
+      {
+        "row_number": 48,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 5666,
+          "sell_total_volume": 6381,
+          "ma10": 1537000.0,
+          "ma5": 1537000.0,
+          "deal_amount": 1540000,
+          "close_price": 1540000,
+          "open_price": 1535000,
+          "total_in_volume": 74957,
+          "total_out_volume": 95109,
+          "estimated_day_volume": -194107580140,
+          "trade_count": 133,
+          "deal_volume": 1,
+          "high_price": 1540000,
+          "low_price": 1530000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "2356.csv",
+    "rows": 7458,
+    "price_suspects": 7414,
+    "volume_suspects": 3938,
+    "negative_prices": 0,
+    "negative_volumes": 4529,
+    "price_scale_candidates": 7414,
+    "issue_samples": [
+      {
+        "row_number": 27,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 91196,
+          "sell_total_volume": 13077,
+          "ma10": 61.4,
+          "ma5": 61.39,
+          "deal_amount": 27491103.0,
+          "close_price": 62.04,
+          "open_price": 62.03,
+          "total_in_volume": 185590,
+          "total_out_volume": 257529,
+          "estimated_day_volume": 13293570,
+          "trade_count": 1588,
+          "deal_volume": 443119,
+          "high_price": 62.06,
+          "low_price": 62.03
+        }
+      },
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1415,
+          "sell_total_volume": 444,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": -1402306820838000,
+          "close_price": 653000,
+          "open_price": 652500.0,
+          "total_in_volume": 24027,
+          "total_out_volume": 43434,
+          "estimated_day_volume": -36495394733,
+          "trade_count": 10,
+          "deal_volume": -2147483646,
+          "high_price": 653000,
+          "low_price": 652500.0
+        }
+      },
+      {
+        "row_number": 46,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1451,
+          "sell_total_volume": 435,
+          "ma10": null,
+          "ma5": 652800.0,
+          "deal_amount": 653000,
+          "close_price": 653000,
+          "open_price": 652500.0,
+          "total_in_volume": 24028,
+          "total_out_volume": 43448,
+          "estimated_day_volume": -66855622865,
+          "trade_count": 21,
+          "deal_volume": 1,
+          "high_price": 653000,
+          "low_price": 652000
+        }
+      },
+      {
+        "row_number": 47,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1421,
+          "sell_total_volume": 464,
+          "ma10": 652900.0,
+          "ma5": 653000.0,
+          "deal_amount": -1402306818226000,
+          "close_price": 653000,
+          "open_price": 652500.0,
+          "total_in_volume": 24028,
+          "total_out_volume": 43457,
+          "estimated_day_volume": -109335643381,
+          "trade_count": 32,
+          "deal_volume": -2147483642,
+          "high_price": 653000,
+          "low_price": 652000
+        }
+      },
+      {
+        "row_number": 48,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1424,
+          "sell_total_volume": 435,
+          "ma10": 652800.0,
+          "ma5": 652600.0,
+          "deal_amount": 652000,
+          "close_price": 652000,
+          "open_price": 652500.0,
+          "total_in_volume": 24030,
+          "total_out_volume": 43466,
+          "estimated_day_volume": -151646549985,
+          "trade_count": 48,
+          "deal_volume": 1,
+          "high_price": 653000,
+          "low_price": 652000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "2609.csv",
+    "rows": 7290,
+    "price_suspects": 7246,
+    "volume_suspects": 6863,
+    "negative_prices": 0,
+    "negative_volumes": 5036,
+    "price_scale_candidates": 7246,
+    "issue_samples": [
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1235,
+          "sell_total_volume": 647,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": -1131723881442000,
+          "close_price": 527000,
+          "open_price": 527000,
+          "total_in_volume": 3685,
+          "total_out_volume": 3798,
+          "estimated_day_volume": -12179505509,
+          "trade_count": 3,
+          "deal_volume": -2147483646,
+          "high_price": 527000,
+          "low_price": 527000
+        }
+      },
+      {
+        "row_number": 46,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1241,
+          "sell_total_volume": 647,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": -1131723881442000,
+          "close_price": 527000,
+          "open_price": 527000,
+          "total_in_volume": 3685,
+          "total_out_volume": 3798,
+          "estimated_day_volume": -12179505509,
+          "trade_count": 3,
+          "deal_volume": -2147483646,
+          "high_price": 527000,
+          "low_price": 527000
+        }
+      },
+      {
+        "row_number": 47,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1243,
+          "sell_total_volume": 646,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 3682000,
+          "close_price": 526000,
+          "open_price": 527000,
+          "total_in_volume": 3692,
+          "total_out_volume": 3798,
+          "estimated_day_volume": -12150791487,
+          "trade_count": 6,
+          "deal_volume": 7,
+          "high_price": 527000,
+          "low_price": 526000
+        }
+      },
+      {
+        "row_number": 48,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1245,
+          "sell_total_volume": 646,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 3682000,
+          "close_price": 526000,
+          "open_price": 527000,
+          "total_in_volume": 3692,
+          "total_out_volume": 3798,
+          "estimated_day_volume": -12150791487,
+          "trade_count": 6,
+          "deal_volume": 7,
+          "high_price": 527000,
+          "low_price": 526000
+        }
+      },
+      {
+        "row_number": 49,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 1245,
+          "sell_total_volume": 646,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 3682000,
+          "close_price": 526000,
+          "open_price": 527000,
+          "total_in_volume": 3692,
+          "total_out_volume": 3798,
+          "estimated_day_volume": -12150791487,
+          "trade_count": 6,
+          "deal_volume": 7,
+          "high_price": 527000,
+          "low_price": 526000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "2610.csv",
+    "rows": 7417,
+    "price_suspects": 7373,
+    "volume_suspects": 7301,
+    "negative_prices": 0,
+    "negative_volumes": 4621,
+    "price_scale_candidates": 7373,
+    "issue_samples": [
+      {
+        "row_number": 9,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 12041,
+          "sell_total_volume": 42877,
+          "ma10": 18.07,
+          "ma5": 18.18,
+          "deal_amount": 8108769.0,
+          "close_price": 18.44,
+          "open_price": 18.44,
+          "total_in_volume": 213582,
+          "total_out_volume": 226156,
+          "estimated_day_volume": 13192140,
+          "trade_count": 1874,
+          "deal_volume": 439738,
+          "high_price": 18.44,
+          "low_price": 18.44
+        }
+      },
+      {
+        "row_number": 24,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 39016,
+          "sell_total_volume": 12680,
+          "ma10": 17.98,
+          "ma5": 18.48,
+          "deal_amount": 8232685.0,
+          "close_price": 18.45,
+          "open_price": 18.44,
+          "total_in_volume": 267224,
+          "total_out_volume": 178992,
+          "estimated_day_volume": 13386480,
+          "trade_count": 1898,
+          "deal_volume": 446216,
+          "high_price": 18.45,
+          "low_price": 18.43
+        }
+      },
+      {
+        "row_number": 42,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 12208,
+          "sell_total_volume": 75832,
+          "ma10": 17.77,
+          "ma5": 18.63,
+          "deal_amount": 8008314.0,
+          "close_price": 18.43,
+          "open_price": 18.44,
+          "total_in_volume": 212027,
+          "total_out_volume": 222499,
+          "estimated_day_volume": 13035780,
+          "trade_count": 572,
+          "deal_volume": 434526,
+          "high_price": 18.44,
+          "low_price": 18.43
+        }
+      },
+      {
+        "row_number": 45,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 3331,
+          "sell_total_volume": 5237,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 565500,
+          "close_price": 188500,
+          "open_price": 188500.0,
+          "total_in_volume": 11844,
+          "total_out_volume": 17976,
+          "estimated_day_volume": -18251287263,
+          "trade_count": 10,
+          "deal_volume": 3,
+          "high_price": 189000,
+          "low_price": 188000
+        }
+      },
+      {
+        "row_number": 46,
+        "issues": [
+          "price_scale_suspect",
+          "negative_estimated_day_volume"
+        ],
+        "values": {
+          "buy_total_volume": 3385,
+          "sell_total_volume": 5238,
+          "ma10": null,
+          "ma5": null,
+          "deal_amount": 565500,
+          "close_price": 188500,
+          "open_price": 188500.0,
+          "total_in_volume": 11844,
+          "total_out_volume": 17976,
+          "estimated_day_volume": -18251287263,
+          "trade_count": 10,
+          "deal_volume": 3,
+          "high_price": 189000,
+          "low_price": 188000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "6122.csv",
+    "rows": 44,
+    "price_suspects": 0,
+    "volume_suspects": 1,
+    "negative_prices": 0,
+    "negative_volumes": 0,
+    "price_scale_candidates": 0,
+    "issue_samples": [
+      {
+        "row_number": 16,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 11966,
+          "sell_total_volume": 28437,
+          "ma10": 47.84,
+          "ma5": 46.59,
+          "deal_amount": 23073627.0,
+          "close_price": 46.78,
+          "open_price": 46.82,
+          "total_in_volume": 211860,
+          "total_out_volume": 281377,
+          "estimated_day_volume": 14797110,
+          "trade_count": 833,
+          "deal_volume": 493237,
+          "high_price": 46.83,
+          "low_price": 46.75
+        }
+      }
+    ],
+    "causes": [
+      "成交量單位不一致或成交資訊不匹配，可能需檢查張/股轉換"
+    ]
+  },
+  {
+    "file": "6123.csv",
+    "rows": 44,
+    "price_suspects": 0,
+    "volume_suspects": 1,
+    "negative_prices": 0,
+    "negative_volumes": 0,
+    "price_scale_candidates": 0,
+    "issue_samples": [
+      {
+        "row_number": 17,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 47538,
+          "sell_total_volume": 10152,
+          "ma10": 44.69,
+          "ma5": 42.65,
+          "deal_amount": 16389589.0,
+          "close_price": 43.04,
+          "open_price": 43.04,
+          "total_in_volume": 178365,
+          "total_out_volume": 202434,
+          "estimated_day_volume": 11423970,
+          "trade_count": 1109,
+          "deal_volume": 380799,
+          "high_price": 43.07,
+          "low_price": 42.99
+        }
+      }
+    ],
+    "causes": [
+      "成交量單位不一致或成交資訊不匹配，可能需檢查張/股轉換"
+    ]
+  },
+  {
+    "file": "6412.csv",
+    "rows": 488,
+    "price_suspects": 488,
+    "volume_suspects": 119,
+    "negative_prices": 0,
+    "negative_volumes": 119,
+    "price_scale_candidates": 488,
+    "issue_samples": [
+      {
+        "row_number": 1,
+        "issues": [
+          "price_scale_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 124,
+          "sell_total_volume": 74,
+          "ma10": 1069000.0,
+          "ma5": 1070000.0,
+          "deal_amount": 1070000,
+          "close_price": 1070000,
+          "open_price": 1067500.0,
+          "total_in_volume": 293,
+          "total_out_volume": 101,
+          "estimated_day_volume": 0,
+          "trade_count": 9,
+          "deal_volume": 1,
+          "high_price": 1070000,
+          "low_price": 1065000
+        }
+      },
+      {
+        "row_number": 2,
+        "issues": [
+          "price_scale_suspect",
+          "negative_deal_volume"
+        ],
+        "values": {
+          "buy_total_volume": 131,
+          "sell_total_volume": 70,
+          "ma10": 1070000.0,
+          "ma5": 1070000.0,
+          "deal_amount": -2297807501220000,
+          "close_price": 1070000,
+          "open_price": 1067500.0,
+          "total_in_volume": 293,
+          "total_out_volume": 105,
+          "estimated_day_volume": 0,
+          "trade_count": 18,
+          "deal_volume": -2147483646,
+          "high_price": 1070000,
+          "low_price": 1065000
+        }
+      },
+      {
+        "row_number": 3,
+        "issues": [
+          "price_scale_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 138,
+          "sell_total_volume": 68,
+          "ma10": 1070000.0,
+          "ma5": 1070000.0,
+          "deal_amount": 1070000,
+          "close_price": 1070000,
+          "open_price": 1067500.0,
+          "total_in_volume": 293,
+          "total_out_volume": 108,
+          "estimated_day_volume": 0,
+          "trade_count": 23,
+          "deal_volume": 1,
+          "high_price": 1070000,
+          "low_price": 1065000
+        }
+      },
+      {
+        "row_number": 4,
+        "issues": [
+          "price_scale_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 146,
+          "sell_total_volume": 39,
+          "ma10": 1070000.0,
+          "ma5": 1070000.0,
+          "deal_amount": 1070000,
+          "close_price": 1070000,
+          "open_price": 1067500.0,
+          "total_in_volume": 294,
+          "total_out_volume": 150,
+          "estimated_day_volume": 0,
+          "trade_count": 33,
+          "deal_volume": 1,
+          "high_price": 1070000,
+          "low_price": 1065000
+        }
+      },
+      {
+        "row_number": 5,
+        "issues": [
+          "price_scale_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 119,
+          "sell_total_volume": 50,
+          "ma10": 1071500.0,
+          "ma5": 1071000.0,
+          "deal_amount": 21400000,
+          "close_price": 1070000,
+          "open_price": 1067500.0,
+          "total_in_volume": 315,
+          "total_out_volume": 152,
+          "estimated_day_volume": 0,
+          "trade_count": 41,
+          "deal_volume": 20,
+          "high_price": 1075000,
+          "low_price": 1065000
+        }
+      }
+    ],
+    "causes": [
+      "可能存在價格欄位單位錯誤，價格值應除以 10000",
+      "資料中出現負值成交量或總量，可能為資料抓取錯誤類型應為無號或欄位解讀錯誤"
+    ]
+  },
+  {
+    "file": "8936.csv",
+    "rows": 44,
+    "price_suspects": 0,
+    "volume_suspects": 2,
+    "negative_prices": 0,
+    "negative_volumes": 0,
+    "price_scale_candidates": 0,
+    "issue_samples": [
+      {
+        "row_number": 4,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 43693,
+          "sell_total_volume": 12556,
+          "ma10": 50.05,
+          "ma5": 50.78,
+          "deal_amount": 21155412.0,
+          "close_price": 49.96,
+          "open_price": 49.98,
+          "total_in_volume": 213599,
+          "total_out_volume": 209848,
+          "estimated_day_volume": 12703410,
+          "trade_count": 245,
+          "deal_volume": 423447,
+          "high_price": 49.98,
+          "low_price": 49.96
+        }
+      },
+      {
+        "row_number": 30,
+        "issues": [
+          "volume_unit_suspect"
+        ],
+        "values": {
+          "buy_total_volume": 20755,
+          "sell_total_volume": 10274,
+          "ma10": 49.93,
+          "ma5": 50.64,
+          "deal_amount": 19389349.0,
+          "close_price": 50.04,
+          "open_price": 50.01,
+          "total_in_volume": 179323,
+          "total_out_volume": 208154,
+          "estimated_day_volume": 11624310,
+          "trade_count": 509,
+          "deal_volume": 387477,
+          "high_price": 50.05,
+          "low_price": 50.01
+        }
+      }
+    ],
+    "causes": [
+      "成交量單位不一致或成交資訊不匹配，可能需檢查張/股轉換"
+    ]
+  }
+]

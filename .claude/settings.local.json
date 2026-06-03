@@ -1,15 +1,17 @@
 {
   "permissions": {
-    "mode": "acceptEdits",
     "allow": [
       "Bash(*)",
       "PowerShell(*)",
-      "Edit(*)"
+      "Edit(*)",
+      "WebFetch(domain:www.tpex.org.tw)",
+      "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf *)",
       "Bash(git push --force *)",
       "Bash(git reset --hard *)"
-    ]
+    ],
+    "mode": "acceptEdits"
   }
 }

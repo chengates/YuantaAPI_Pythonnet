@@ -1,0 +1,18 @@
+{
+  "unit": "D",
+  "n_days": 72,
+  "start_idx": 3367,
+  "TICK_INTERVAL": 10,
+  "TICK_INTERVAL_AUTO": true,
+  "show_bollinger": true,
+  "ma_short_period": 5,
+  "ma_long_period": 20,
+  "vol_ma_short": 5,
+  "vol_ma_long": 20,
+  "style": "Light",
+  "ma_s_color": "#B71C1CAA",
+  "ma_l_color": "#1B5E20AA",
+  "bb_color": "#1565C0",
+  "rise_color": "red",
+  "fall_color": "green"
+}

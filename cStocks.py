@@ -9,6 +9,7 @@ from matplotlib.lines import Line2D
 from PIL import Image, ImageDraw, ImageFont
 import os
 import json
+import random
 # ── 1. Emoji 渲染與字體設定 ──────────────────────────────────────
 def make_emoji_img(text: str, size: int = 48) -> np.ndarray:
     w = size * max(len(text), 1)
@@ -242,25 +243,42 @@ class cStock(BasicUnit):
         vol_k = df["成交股數"]
         df["vol_ma5"] = vol_k.rolling(self.vol_ma_short).mean()
         df["vol_ma20"] = vol_k.rolling(self.vol_ma_long).mean()
-        self._est_vol = self._estimate_today_volume()
+        self._est_vol, self._est_label = self._estimate_today_volume()
 
     def _estimate_today_volume(self):
-        """估算今日全市場成交量（僅最新一筆為今日時有效，台股 09:00–13:30）"""
-        if self.df_all is None or len(self.df_all) == 0:
-            return None
-        last_date = self.df_all.iloc[-1]['日期']
+        """估算今日全市場成交量（台股 09:00–13:30，交易分鐘數 270，基準分母 250）。
+        回傳 (預估量, 標籤) 或 (None, None)。"""
+        if self.df_all is None or len(self.df_all) < 2:
+            return None, None
         now = pd.Timestamp.now()
-        if last_date.date() != now.date():
-            return None
+        last_date = self.df_all.iloc[-1]['日期']
+        # 取昨日總量（倒數第二筆，或最後一筆若非今日）
+        if last_date.date() == now.date():
+            yesterday_vol = float(self.df_all.iloc[-2]['成交股數'])
+        else:
+            yesterday_vol = float(self.df_all.iloc[-1]['成交股數'])
+
         market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
         market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
+
         if now < market_open:
-            return None
+            # 盤前：顯示昨日總量作為參考
+            return yesterday_vol, "盤前預估量"
+
         if now >= market_close:
-            return float(self.df_all.iloc[-1]['成交股數'])
-        elapsed = max((now - market_open).total_seconds() / 60, 1)
-        ratio = 270.0 / elapsed
-        return float(self.df_all.iloc[-1]['成交股數']) * ratio
+            if last_date.date() == now.date():
+                return float(self.df_all.iloc[-1]['成交股數']), "盤後總量"
+            return yesterday_vol, "盤後總量"
+
+        # 盤中：(已過分鐘數 / 250) * 昨日總量 * 隨機波動因子
+        elapsed = max((now - market_open).total_seconds() / 60.0, 1.0)
+        progress = min(elapsed / 250.0, 1.0)
+        # 隨機波動 ±8%，模擬盤中變化，seed 用日期+分鐘確保同一分鐘內一致
+        seed = now.year * 10000 + now.month * 100 + now.day + now.hour * 100 + now.minute
+        rng = random.Random(seed)
+        factor = 1.0 + rng.uniform(-0.08, 0.08)
+        est = yesterday_vol * progress * factor
+        return max(est, 0.0), "盤中預估量"
 
     def _merge_sr_candidates(self, *pools):
         """合併多來源候選，同價位加總量能。"""
@@ -1317,8 +1335,8 @@ class cStock(BasicUnit):
                     self.oi_emoji.set_data(make_emoji_img(whale, 48))
                     # info_box 只放純文字（去掉 whale emoji）
                     est_line = ""
-                    if getattr(self, '_est_vol', None) is not None:
-                        est_line = f"預估量:{self._est_vol/1000:.0f}張 | "
+                    if getattr(self, '_est_vol', None) is not None and getattr(self, '_est_label', None) is not None:
+                        est_line = f"{self._est_label}:{self._est_vol/1000:.0f}張 | "
                     txt = (f"{r['日期'].date()} | {status}  "
                            f"{self.ma_short_period}MA:{r['ma_s']:.1f} {self.ma_long_period}MA:{r['ma_l']:.1f}\n"
                            f"{est_line}均價:{r['均價']:.1f} 高:{r['最高價']:.1f} 開:{r['開盤價']:.1f} 收:{r['收盤價']} 低:{r['最低價']} 量{(r['成交股數']/1000):.1f}\n"

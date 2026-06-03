@@ -127,3 +127,5 @@ start http://localhost:5000
 | `stop.ps1` | Kill all Python processes |
 | `YuantaAPI_Pythonnet.py` | Main API bridge (pythonnet → YuantaOneAPI.dll) |
 | `cStocks.py` | K-line chart visualization |
+
+## 7. error\ This directory contains error.log and reference screenshots.

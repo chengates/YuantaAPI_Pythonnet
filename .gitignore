@@ -30,7 +30,7 @@ accountEnv.json
 *密碼*.txt
 *金鑰*.txt
 *token*.txt
-
+error/
 # Backup files
 *.bak
 

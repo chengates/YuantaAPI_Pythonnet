@@ -2,23 +2,31 @@
 
 基於元大證券 OneAPI 的 Python 量化交易分析系統，支援台股即時報價、技術指標計算、K 線視覺化與 AI 驅動的 Managed Agent 分析。
 
-## 架構
+##架構與資料流
+```
+YuantaOneAPI.dll (C#)
+    │ pythonnet
+    ▼
+YuantaAPI_Pythonnet.py          ← 即時報價訂閱 + CSV 持久化（5 秒）
+    │                              五檔/分時/觀察清單回呼處理
+    │                              StockQuoteState 狀態管理
+    │                              SUBSCRIPTION_STATE 全局字典
+    │
+    ├──▶ {stockID}.csv           ← 5 秒 OHLCV（單位：股）
+    ├──▶ @stockID.csv            ← 日總結（每交易日一筆）
+    └──▶ yesterday/{stockID}.csv ← 昨日收盤快照
 
-```text
-YuantaOneAPI.dll (C#) ──pythonnet──▶ YuantaAPI_Pythonnet.py (即時報價 + CSV 持久化)
-                                     │
-                                     ├── StockQuoteState (五檔 / 分時 / 觀察清單)
-                                     ├── async show() (60fps UI 更新)
-                                     └── 每 5 秒 CSV 輸出 (OHLCV + 內外盤分析)
-
-cStocks.py (matplotlib) ────────────▶ K 線圖表 / MACD / KDJ / Bollinger / 支撐壓力
-                                     │
-                                     ├── 深色/亮色模式
-                                     ├── 12 種繪圖工具 (線/通道/弧/斐波那契/測距)
-                                     └── Whale 大戶偵測 (🐋↗ 吸收 / 🐋↘ 脫手)
-
-claude_agent_setup.py ──────────────▶ Managed Agent 建立 (Opus 4.7 / Sonnet 4.6 / Claude 3.5)
-claude_agent_runtime.py ────────────▶ Managed Agent 運行 (4 種模式)
+web_dashboard.py                ← Flask + SSE，獨立讀取 CSV
+    │                              Dark theme card layout
+    │                              不需 .NET Runtime
+    │
+run.py                          ← 交易日排程器，自動啟動 dashboard,請追加自動啟動YuantaAPI_Pythonnet.py 並避免雙開
+sim_run.py                      ← 非交易日模擬器
+cStocks.py                      ← K 線四聯圖（Matplotlib）
+    │                              MACD/KDJ/Bollinger/支撐壓力
+    │                              Whale 大戶偵測 / 繪圖工具
+    │
+option_pricing.py               ← Black-Scholes + Put/Call Parity
 ```
 
 ## 功能
@@ -26,21 +34,18 @@ claude_agent_runtime.py ────────────▶ Managed Agent �
 | 模組 | 功能 | 狀態 |
 | --- | --- | --- |
 | **即時報價** | SubscribeFiveTick_out 五檔報價 (實測心跳正常) | ✅ |
-| **統一行情狀態** | SUBSCRIPTION_STATE 字典 + StockQuoteState 類別 | ✅ |
-| **技術指標** | MA5 / MA10 / 價格動量 / MACD / KDJ / Bollinger | ✅ |
-| **買賣壓力** | 內外盤量 / 買賣不平衡 / 盤壓計算 | ✅ |
-| **CSV 持久化** | 每 5 秒寫入 OHLCV + 內外盤數據 (非阻塞) | ✅ |
-| **大戶偵測** | Whale 吸收/脫手/散戶盤整 自動標記 | ✅ |
-| **K 線圖表** | 多週期切換 (1分K~月K) / 深色亮色主題 / 繪圖工具 | ✅ |
-| **異步顯示** | async show() 每 1/60 秒更新 | ✅ |
 | **Managed Agent** | Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5 三模型 | ✅ |
 | **收盤排程** | 13:30-14:30 盤後搓合暫停 CSV → 日匯總寫入 | ✅ |
-| **日匯總 CSV** | @stockID.csv 每日一筆供隔日快速載入 | ✅ |
+| **日匯總 CSV** | @stockID.csv 每日一筆供隔日快速載入 | 啟動程式時利用工具檢查csv時間屬性,迅速判斷不存在昨日資料時,使用tool補充該筆資料 | 
 | **主力/散戶分類** | 5-factor scoring + 6 級標籤 (強力買進~強力賣出) | ✅ |
-| **股票分類** | large_cap/mid_cap/small_cap/speculative 自動偵測 | ✅ |
-| **自選股 JSON** | watchlist.json 可擴充自選股1/2/3…，dashboard 切換 | ✅ |
+| **股票分類** | large_cap/mid_cap/small_cap/speculative 自動偵測 | 分類方式改進,規格於error\error.log |
+| **自選股 JSON** | watchlist.json 可擴充自選股1/2/3…，dashboard 切換 | dashboard追加增刪改查,若增加時,使用tool補充該股昨日資料@股號.csv |
 | **Web 監控面板** | Flask + SSE 即時多股監控, dark theme card layout | ✅ |
-| **Put/Call 合理價** | Black-Scholes + IV + Parity + PCR 溢價避險分析 | ✅ |
+| **Put/Call 合理價** | Black-Scholes + IV + Parity + PCR 溢價避險分析 | ✅ 
+| **統一行情狀態** | SUBSCRIPTION_STATE 字典 + StockQuoteState 類別 | ✅ |
+| **異步顯示** | async show() 每 1/60 秒更新 | ✅ |
+| - 與cstocks.py有關的先跳過,確認dashboard完善時,才處理.
+
 ## 環境需求
 
 - **OS**: Windows (需要 .NET Framework / DLL)
@@ -56,21 +61,11 @@ claude_agent_runtime.py ────────────▶ Managed Agent �
 ### 1. 即時報價
 
 ```python
-# 啟動 Yuanta OneAPI 交易連線並訂閱五檔報價
+# 啟動 Yuanta OneAPI 交易連線並訂閱五檔報價,預估日成交量,API功能實現
 python YuantaAPI_Pythonnet.py
 ```
 
-### 2. K 線技術分析
-
-```python
-from cStocks import cStock
-
-fox = cStock("2317", "鴻海", "D", "Dark")
-fox.load_data("2317.csv", 90)
-fox.plot_all()
-```
-
-### 3. AI Agent 分析 (需 ANTHROPIC_API_KEY)
+### 3. AI Agent 分析 (需 ANTHROPIC_API_KEY),DeepSeek可替換
 
 ```bash
 # 一次性設定 (建立 Agent + Environment)
@@ -94,7 +89,6 @@ python claude_agent_runtime.py --model sonnet
 | 檔案 | 說明 |
 | --- | --- |
 | `YuantaAPI_Pythonnet.py` | 主程式 — pythonnet 橋接 YuantaOneAPI.dll，即時報價訂閱與 CSV 持久化 |
-| `cStocks.py` | K 線圖表視覺化 — MACD/KDJ/Bollinger/Whale 偵測/繪圖工具 |
 | `YuantaAPI_IronPython.py` | IronPython 版本的 API 橋接 |
 | `claude_agent_setup.py` | Managed Agent 一次性建立 (3 個 Agent + 1 個 Sandbox) |
 | `claude_agent_runtime.py` | Managed Agent 執行期 — 4 種運行模式 |
@@ -104,6 +98,18 @@ python claude_agent_runtime.py --model sonnet
 | `watchlist.json` | 自選股設定檔，可自行編輯擴充 |
 | `IO_Doc/` | Yuanta OneAPI 各項回應規格說明文件 |
 | `*.dll` | 元大證券 API 原生元件 |
+| `cStocks.py`先跳過直接到114行## 資料規格
+| `cStocks.py` | K 線圖表視覺化 — MACD/KDJ/Bollinger/Whale 偵測/繪圖工具 |
+
+### 4. K 線技術分析
+
+```python
+from cStocks import cStock
+
+fox = cStock("2317", "鴻海", "D", "Dark")
+fox.load_data("2317.csv", 90)
+fox.plot_all()
+```
 
 ## 資料規格
 
@@ -139,4 +145,4 @@ python claude_agent_runtime.py --model sonnet
 - DLL 元件版權屬元大證券所有
 
 ## 安全性和隱私問題
-- [ ]檢查程式內,帳號/身分證號/密碼,個別存在json 並且不可上傳,真實環境測試時,加密存於本地localstorage 或綁定人臉或指紋
+- [ ]檢查程式內,帳號/密碼,個別存在json 並且不可上傳,真實環境測試時,加密存於本地localstorage 或綁定人臉或指紋

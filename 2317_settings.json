@@ -1,0 +1,13 @@
+{
+  "unit": "D",
+  "n_days": 194,
+  "start_idx": 3238,
+  "TICK_INTERVAL": 10,
+  "TICK_INTERVAL_AUTO": true,
+  "show_bollinger": true,
+  "ma_short_period": 5,
+  "ma_long_period": 20,
+  "vol_ma_short": 5,
+  "vol_ma_long": 20,
+  "style": "Dark"
+}

@@ -50,8 +50,34 @@ def _cleanup_pid():
         pass
 
 
+def _check_api_active():
+    """檢查 .api_active 是否有效（PID 仍存活），若為僵屍旗標則清除。"""
+    if not os.path.exists(API_FLAG):
+        return False
+    try:
+        with open(API_FLAG, encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        import ctypes.wintypes
+        SYNCHRONIZE = 0x100000
+        PROCESS_QUERY_INFORMATION = 0x0400
+        handle = ctypes.windll.kernel32.OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_INFORMATION, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        # PID 不存在，清除僵屍旗標
+        os.remove(API_FLAG)
+        print(f"[SIM] 清除僵屍 .api_active (PID {pid} 已不存在)")
+        return False
+    except (ValueError, OSError):
+        if os.path.exists(API_FLAG):
+            os.remove(API_FLAG)
+        print("[SIM] 清除無效 .api_active")
+        return False
+
+
 def main():
-    if os.path.exists(API_FLAG):
+    if _check_api_active():
         print("[SIM] API 信號 active，模擬器不啟動。請使用 run.py 或等待 API 中斷。")
         return
 
