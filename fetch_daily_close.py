@@ -69,48 +69,51 @@ def fetch_twse_daily():
 # ---- TPEx 上櫃 (OpenAPI) ----
 
 def fetch_tpex_daily():
-    """TPEx OpenAPI: 最近交易日全體上櫃股票日數據"""
-    url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quot"
-    print("[TPEx] 查詢 ...")
+    """TPEx: 最近交易日全體上櫃股票日數據"""
+    from datetime import datetime
+    now = datetime.now()
+    roc_date = f"{now.year - 1911}/{now.month:02d}/{now.day:02d}"
+    url = f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?d={roc_date}&response=json"
+    print(f"[TPEx] 查詢 {roc_date} ...")
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urlopen(req, timeout=30, context=ctx) as resp:
-            text = resp.read().decode("utf-8")
-        if text.strip().startswith("{"):
-            data = json.loads(text)
-        elif text.strip().startswith("["):
-            data = json.loads(text)
-        else:
-            print(f"[TPEx] 非 JSON 回應 (可能當日資料尚未發布): {text[:80]}")
-            return {}
+            data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"[TPEx] 查詢失敗: {e}")
         return {}
 
+    if data.get("stat") != "ok":
+        print(f"[TPEx] API stat={data.get('stat')}")
+        return {}
+
     result = {}
-    items = data if isinstance(data, list) else data.get("data", data)
-    if isinstance(items, dict):
-        items = list(items.values())
-    for item in items:
+    # 第一個 table 是股票報價，第二個是特別處理
+    tables = data.get("tables", [])
+    if not tables:
+        return {}
+    # fields: 代號, 名稱, 收盤, 漲跌, 開盤, 最高, 最低, 均價, 成交股數, 成交金額(元), 成交筆數, ...
+    for row in tables[0].get("data", []):
         try:
-            if not isinstance(item, dict):
-                continue
-            code = str(item.get("SecuritiesCompanyCode", "")).strip()
+            code = row[0].strip()
             if not code:
                 continue
+            vol = int(row[8].replace(",", "")) if len(row) > 8 else 0
+            amt = int(row[9].replace(",", "")) if len(row) > 9 else 0
+            trades = int(row[10].replace(",", "")) if len(row) > 10 else 0
             result[code] = {
-                "open": float(item.get("Open", 0) or 0),
-                "high": float(item.get("High", 0) or 0),
-                "low": float(item.get("Low", 0) or 0),
-                "close": float(item.get("Close", 0) or 0),
-                "vol": int(float(item.get("TradingVolume", 0) or 0)),
-                "amount": int(float(item.get("TradingValue", 0) or 0)),
-                "trades": int(float(item.get("Transaction", 0) or 0)),
+                "open": float(row[4].replace(",", "")) if len(row) > 4 else 0,
+                "high": float(row[5].replace(",", "")) if len(row) > 5 else 0,
+                "low": float(row[6].replace(",", "")) if len(row) > 6 else 0,
+                "close": float(row[2].replace(",", "")) if len(row) > 2 else 0,
+                "vol": vol,
+                "amount": amt,
+                "trades": trades,
             }
-        except (ValueError, TypeError):
+        except (ValueError, IndexError):
             continue
     print(f"[TPEx] 取得 {len(result)} 筆")
     return result

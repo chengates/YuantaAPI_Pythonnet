@@ -392,11 +392,11 @@ class StockQuoteState:
             return
 
         if best_bid is None:
-            inferred_price = best_ask / 10000.0
+            inferred_price = best_ask  # 保持 API 原始整數
         elif best_ask is None:
-            inferred_price = best_bid / 10000.0
+            inferred_price = best_bid
         else:
-            inferred_price = round((best_bid + best_ask) / 20000.0, 2)
+            inferred_price = round((best_bid + best_ask) / 2)  # 原始整數中價，不除 10000
 
         if inferred_price is None:
             return

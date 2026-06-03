@@ -245,7 +245,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
     if not os.path.exists(path):
         return None
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
             rows = list(csv.DictReader(f))
         if not rows:
             return None
@@ -330,11 +330,24 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "ref_price": _get_ref_price(stock_id, open_price),
             "limit_state": _calc_limit_state(close_price, stock_id),
         }
-        # 盤後 (14:30+) 用 @stockID.csv 的真實總量覆蓋估算值
-        actual_vol = _get_actual_day_volume(stock_id)
+        # 盤後 (14:30+) 用 @stockID.csv 的真實數據覆蓋估算值
+        actual_vol, day_info = _get_actual_day_volume(stock_id)
         if actual_vol is not None:
             d["estimated_day_volume"] = actual_vol
             d["volume_label"] = "盤後總量"
+        if day_info is not None:
+            if day_info.get("close") is not None:
+                d["close_price"] = day_info["close"]
+            if day_info.get("open") is not None:
+                d["open_price"] = day_info["open"]
+            if day_info.get("high") is not None:
+                d["high_price"] = day_info["high"]
+            if day_info.get("low") is not None:
+                d["low_price"] = day_info["low"]
+            # 重算漲跌價差與漲跌停狀態
+            if d["close_price"] is not None and d["open_price"] is not None:
+                d["price_diff"] = round(d["close_price"] - d["open_price"], 2)
+            d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
         return d
     except Exception:
         return None
@@ -535,7 +548,7 @@ def read_recent_rows(stock_id: str, n: int = 5) -> list:
     if not os.path.exists(path):
         return []
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
             rows = list(csv.DictReader(f))
         return rows[-n:]
     except Exception:
@@ -543,26 +556,35 @@ def read_recent_rows(stock_id: str, n: int = 5) -> list:
 
 
 def _get_actual_day_volume(stock_id: str):
-    """盤後從 @stockID.csv 讀取當日實際總量，用於覆蓋 5 秒 CSV 的 estimated_day_volume。"""
+    """盤後從 @stockID.csv 讀取當日實際總量與收盤價，用於覆蓋 5 秒 CSV 的估算值。"""
     from datetime import datetime
     now = datetime.now()
     if now.hour < 14 or (now.hour == 14 and now.minute < 30):
-        return None
+        return None, None
     path = f"@{stock_id}.csv"
     if not os.path.exists(path):
-        return None
+        return None, None
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
             rows = list(csv.DictReader(f))
         today = now.strftime("%Y%m%d")
         for r in reversed(rows):
             if r.get("日期", "") == today or r.get("date", "") == today:
                 vol = _num(r, "成交股數") or _num(r, "total_volume")
-                if vol is not None and vol > 0:
-                    return int(vol)
-        return None
+                vol = int(vol) if vol is not None and vol > 0 else None
+                close = _normalize_price(_num(r, "收盤價") or _num(r, "close_price"))
+                open_p = _normalize_price(_num(r, "開盤價") or _num(r, "open_price"))
+                high_p = _normalize_price(_num(r, "最高價") or _num(r, "high_price"))
+                low_p = _normalize_price(_num(r, "最低價") or _num(r, "low_price"))
+                day_info = {
+                    "vol": vol,
+                    "close": close, "open": open_p,
+                    "high": high_p, "low": low_p,
+                }
+                return vol, day_info
+        return None, None
     except Exception:
-        return None
+        return None, None
 
 
 def _empty_card(stock_id: str) -> dict:
