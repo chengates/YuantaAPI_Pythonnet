@@ -131,7 +131,7 @@ def write_daily_summary(stock_id, date_str, info):
     existing_dates = set()
     if os.path.exists(path):
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
                 for r in csv.DictReader(f):
                     existing_dates.add(r.get("日期", ""))
         except Exception:
