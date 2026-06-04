@@ -203,9 +203,41 @@ class StockQuoteState:
         elif byIndexFlag == '6':
             self.total_in_volume = to_uint32(int_value) * 1000
 
+def _intraday_volume_progress(elapsed_min: float) -> float:
+    """台股日內累積成交量分布曲線（分段線性）。
+    回傳已過時間對應的預估累積成交量比例 (0~1)。
+
+    實測分布參考:
+      09:00-09:30 (0-30min):   累積 ~28%
+      09:30-11:00 (30-120min): 累積 ~58%
+      11:00-12:00 (120-180min):累積 ~73%
+      12:00-13:00 (180-240min):累積 ~80% (午盤量縮)
+      13:00-13:25 (240-265min):累積 ~95% (尾盤急拉)
+      13:25-13:30 (265-270min):累積 100%
+    """
+    if elapsed_min <= 0:
+        return 0.01
+    # 分段節點 (分鐘, 累積%)
+    nodes = [
+        (0, 0),
+        (30, 0.28),
+        (120, 0.58),
+        (180, 0.73),
+        (240, 0.80),
+        (265, 0.95),
+        (270, 1.0),
+    ]
+    for i in range(len(nodes) - 1):
+        t0, v0 = nodes[i]
+        t1, v1 = nodes[i + 1]
+        if elapsed_min <= t1:
+            ratio = (elapsed_min - t0) / (t1 - t0)
+            return v0 + ratio * (v1 - v0)
+    return 1.0
+
+
     def _update_estimates(self):
-        """盤中預估量：以 (已過分鐘數 / 250) * 昨日量 * 隨機波動因子估算。
-        若無昨日量則退回原始倍數法（當日部分量 × 剩餘時間倍率）。
+        """盤中預估量：以分段時間權重曲線估算（反映台股開盤/尾盤量大、午盤量縮特性）。
         盤前顯示昨日量參考，盤後顯示實際總量。"""
         now = dt.datetime.now()
         market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -215,27 +247,27 @@ class StockQuoteState:
             self.estimated_day_volume = self.prev_average_volume
             self.volume_label = "盤前預估量"
         elif now >= market_close:
-            # 盤後總量：優先用 Watchlist 內外盤累積量（來自 API），StockTick 逐筆量太小
             actual_volume = self.total_in_volume + self.total_out_volume
             if actual_volume > 0:
                 self.estimated_day_volume = actual_volume
-                self.total_volume = actual_volume  # 同步更新 total_volume
+                self.total_volume = actual_volume
             elif self.total_volume:
                 self.estimated_day_volume = self.total_volume
             else:
                 self.estimated_day_volume = self.prev_average_volume
             self.volume_label = "盤後總量"
         else:
-            elapsed = max((now - market_open).total_seconds() / 60.0, 1.0)
+            elapsed_min = max((now - market_open).total_seconds() / 60.0, 1.0)
             if self.prev_average_volume and self.prev_average_volume > 0:
-                progress = min(max(elapsed / 250.0, 0.1), 1.0)
-                seed = now.year * 10000 + now.month * 100 + now.day + now.hour * 100 + now.minute
-                rng = random.Random(seed)
-                factor = 1.0 + rng.uniform(-0.05, 0.05)
-                self.estimated_day_volume = max(0, int(self.prev_average_volume * progress * factor))
+                # 分段時間權重：反映台股日內成交量分布
+                progress = _intraday_volume_progress(elapsed_min)
+                self.estimated_day_volume = max(0, int(self.prev_average_volume * progress))
             elif self.total_volume:
-                trading_seconds = 4 * 60 * 60
-                self.estimated_day_volume = max(0, int(self.total_volume * trading_seconds / elapsed))
+                progress = _intraday_volume_progress(elapsed_min)
+                if progress > 0:
+                    self.estimated_day_volume = max(0, int(self.total_volume / progress))
+                else:
+                    self.estimated_day_volume = None
             else:
                 self.estimated_day_volume = None
             self.volume_label = "盤中預估量"
@@ -244,7 +276,8 @@ class StockQuoteState:
             self.estimated_day_volume = 0
 
         if self.prev_average_volume and self.estimated_day_volume is not None and self.estimated_day_volume > 0:
-            self.pct_of_yesterday_avg = round(self.estimated_day_volume / self.prev_average_volume * 100, 2)
+            # 改為增/縮比例：正值=增加，負值=減少
+            self.pct_of_yesterday_avg = round((self.estimated_day_volume - self.prev_average_volume) / self.prev_average_volume * 100, 2)
         else:
             self.pct_of_yesterday_avg = None
 

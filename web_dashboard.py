@@ -168,7 +168,7 @@ function cardHTML(s){
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
 <div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
-<div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">昨均% ${s.pct_of_yesterday_avg||'--'}%</span></div>
+<div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">${s.pct_of_yesterday_avg!=null?(s.pct_of_yesterday_avg>=0?'增':'縮')+Math.abs(s.pct_of_yesterday_avg).toFixed(1)+'%':'--'}</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
