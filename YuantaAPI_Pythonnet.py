@@ -2434,7 +2434,7 @@ def SubscribeFiveTick_out(abyData):
         market_no = dataGetter.GetByte()
         stock_id = dataGetter.GetStr(12)
         
-ㄨ        byIndexFlag = str(dataGetter.GetByte())
+        byIndexFlag = str(dataGetter.GetByte())
         state = get_quote_state(stock_id, market_no)
         state.byIndexFlag = byIndexFlag
 
