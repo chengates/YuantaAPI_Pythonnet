@@ -122,23 +122,46 @@ def fetch_tpex_daily():
 # ---- 寫入 ----
 
 def write_daily_summary(stock_id, date_str, info):
-    """寫入 @stockID.csv（去重）"""
+    """寫入 @stockID.csv（去重）。若同日已有記錄則更新 OHLCV，
+    保留既有 total_in_volume/total_out_volume 不被覆蓋為 0。"""
     path = f"@{stock_id}.csv"
     fieldnames = ["日期", "stock_id", "開盤價", "最高價", "最低價",
                   "收盤價", "成交股數", "成交金額", "成交筆數",
                   "total_in_volume", "total_out_volume", "estimated_day_volume"]
 
-    existing_dates = set()
+    existing_rows = []
+    date_found = False
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8-sig", errors="replace") as f:
                 for r in csv.DictReader(f):
-                    existing_dates.add(r.get("日期", ""))
+                    d = r.get("日期", r.get("date", ""))
+                    if d == date_str:
+                        date_found = True
+                        # 保留既有的 total_in/total_out
+                        existing_rows.append({
+                            "日期": date_str, "stock_id": stock_id,
+                            "開盤價": info["open"], "最高價": info["high"],
+                            "最低價": info["low"], "收盤價": info["close"],
+                            "成交股數": info["vol"], "成交金額": info["amount"],
+                            "成交筆數": info["trades"],
+                            "total_in_volume": r.get("total_in_volume", 0) or 0,
+                            "total_out_volume": r.get("total_out_volume", 0) or 0,
+                            "estimated_day_volume": info["vol"],
+                        })
+                    else:
+                        existing_rows.append(r)
         except Exception:
             pass
 
-    if date_str in existing_dates:
-        print(f"  @{stock_id}.csv: {date_str} 已存在，跳過")
+    if date_found:
+        # 重寫整個檔案（更新同日記錄）
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in existing_rows:
+                writer.writerow(row)
+        print(f"  @{stock_id}.csv: {date_str} 已更新 (vol={info['vol']:,})")
         return
 
     file_exists = os.path.exists(path)

@@ -2,7 +2,7 @@
 
 本文件供Agent 在本 repo 內開發、除錯、重構時遵循。**修改前請通讀`readme.md`與agend.md,為節省上下文,先不管 `PRD.md` 與 `SPEC.md`。**
 回應語言：與使用者溝通使用**繁體中文**。程式碼、註解、commit message 維持繁體中文。
-
+請依agent為主,ai的memory存在失憶,反覆相同問題改來改去,改了A錯了B,修改B,又錯了A,我以為你懂了,但你卻失憶
 ---
 
 ## 1. 專案概述
@@ -118,5 +118,18 @@ error\error.log
 | 1.5 | 2026-06-03 | 修復：int32 溢位 — 新增 `to_uint32()` 防護 API 回傳負值成交量；僵屍 `.api_active` 旗標偵測與自動清除；`@stockID.csv` 日總結重建（10 檔）、`yesterday/` 備份建立、`stock_ref.json` 擴充 |
 | 1.6 | 2026-06-03 | 修復：`run.py` 雙開防護 — Kernel32 `OpenProcess` 檢查 PID 存活，拒絕重複啟動避免 DLL 鎖定當機；`web_dashboard.py` 漲跌停誤判 — `_get_limit_prices()` 驗證 `up_price > 昨收 > down_price`，不合法自動改用計算值 |
 | 1.7 | 2026-06-03 | 修復：CSV 成交量全為 0 — Watchlist flags 4/6 累積量取代失效的 byTemp 29，內外盤 ×1000 張→股，5 秒區間 delta 快照分離；OTC 股票 MarketNo 自動判斷（`_stock_market_no()`）；`GetUInt()`→`GetInt()` 對齊 IronPython；`build_save_record` 放寬條件納入五檔推斷 OHLC；CSV 欄位位移修復 |
-| 1.8 | 2026-06-03 | 修復：`fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `﻿日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料 |
+| 1.8 | 2026-06-03 | agent說已修復但後來檢查csv資料發現有誤,這表示memory沒有清楚紀錄.又做白工,又燒token連續在相同問題繞圈 `fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `﻿日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料,完全解決問題前這件事不該做,反而把某些正確資料抹除,重點是memory沒有把反覆錯誤的點記起來 |
 
+
+## 請agent 協助確認獨立生成 code map ,代補充 *.json , 其他有效*.py 
+每日開盤前兩件事：
+fetch_daily_close.py  TPEx/OTC OpenAPI : 前日收盤數據校正或當日晚上執行它 — 用官方數據覆蓋今日收盤價和總量,
+tomorrow-premarket-tasks.md 可恢復上下文,位於C:\Users\gates\.claude\projects\D--workCS-TEST-2026-YuantaOneAPI-Python-YuantaOneAPI-Python\memory\tomorrow-premarket-tasks.md
+repair_daily_summary.py — 從 5 秒 CSV 重建日總結檔，修正格式不一致、int32 溢位歷史資料、缺少 yesterday/ 備份
+`stock_ref.json`: 自選股擴充code檔數，要同時補齊參考價,例如增加 6412/6122/6123/8936 
+Web Dashboard: `web_dashboard.py` — Flask + SSE 即時多股監控畫面
+run.py 防止雙開,startup api/Dashboard 開盤日 
+sim_run.py 防止雙開,startup api/Dashboard 非開盤時,增加資料模擬器
+
+Resume this session with:
+claude --resume 9e573b2c-8886-444c-8ec9-862266f4c584

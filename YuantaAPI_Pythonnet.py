@@ -463,6 +463,13 @@ class StockQuoteState:
         if not self.has_data() and self.close_price is None:
             return None
 
+        # 正規化價格：API 原始值 ×10000，若 >100000 則 /10000 → 元
+        def _norm(p):
+            if p is None:
+                return None
+            p = float(p)
+            return round(p / 10000.0, 2) if abs(p) > 100000 else round(p, 2)
+
         # 計算 5 秒區間量差（累積量的 delta），而非最後一筆 tick 值
         interval_vol = max(0, self.total_volume - self._snap_total_vol)
         interval_in = max(0, self.total_in_volume - self._snap_total_in)
@@ -470,15 +477,18 @@ class StockQuoteState:
         # 快照更新移至 commit_save_snapshot()，避免 to_display_dict() 頻繁重置快照
 
         deal_amount = None
-        deal_price = self.last_deal_price or self.close_price
-        # 正規化：API 原始成交價 >100000 需 /10000
-        if deal_price is not None and deal_price >= 100000:
-            deal_price = deal_price / 10000.0
+        deal_price = _norm(self.last_deal_price or self.close_price)
         if deal_price is not None and (interval_in + interval_out) > 0:
             deal_amount = deal_price * (interval_in + interval_out)
 
         # 區間成交量：取 Watchlist 內外盤 delta 與 StockTick 累積 delta 的最大值
         interval_deal_vol = max(interval_in + interval_out, interval_vol)
+
+        # OHLC 正規化為「元」— 確保 CSV 與 cStock 單位一致
+        open_p = _norm(self.open_price)
+        high_p = _norm(self.high_price)
+        low_p = _norm(self.low_price)
+        close_p = _norm(self.close_price)
 
         buy_sell_total = self.total_in_volume + self.total_out_volume
         buy_sell_ratio = None
@@ -495,17 +505,23 @@ class StockQuoteState:
             buy_sell_imbalance = buy_total_volume - sell_total_volume
             buy_sell_pressure = round(buy_sell_imbalance / (buy_total_volume + sell_total_volume) * 100, 2)
 
+        # 五檔價格正規化
+        norm_buy_prices = [_norm(p) for p in self.buy_prices] if self.buy_prices else []
+        norm_sell_prices = [_norm(p) for p in self.sell_prices] if self.sell_prices else []
+
+        price_diff_val = round(close_p - open_p, 2) if (open_p is not None and close_p is not None) else None
+
         return {
             'timestamp': dt.datetime.fromtimestamp(self.latest_timestamp).strftime('%Y%m%d %H:%M:%S'),
             'stock_id': self.stock_id,
             'deal_volume': interval_deal_vol,  # 取 Watchlist 與 StockTick 兩者 delta 的最大值
             'last_tick_volume': self.last_deal_volume,  # 保留最後一筆 tick 量供參考
             'deal_amount': deal_amount,
-            'open_price': self.open_price,
-            'high_price': self.high_price,
-            'low_price': self.low_price,
-            'close_price': self.close_price,
-            'price_diff': self.price_diff,
+            'open_price': open_p,
+            'high_price': high_p,
+            'low_price': low_p,
+            'close_price': close_p,
+            'price_diff': price_diff_val,
             'trade_count': self.trade_count,
             'estimated_day_volume': self.estimated_day_volume,
             'volume_label': self.volume_label,
@@ -520,12 +536,12 @@ class StockQuoteState:
             'buy_sell_imbalance': buy_sell_imbalance,
             'buy_sell_pressure': buy_sell_pressure,
             'buy_sell_ratio': buy_sell_ratio,
-            'buy_prices': self.buy_prices,
+            'buy_prices': norm_buy_prices,
             'buy_volumes': self.buy_volumes,
-            'sell_prices': self.sell_prices,
+            'sell_prices': norm_sell_prices,
             'sell_volumes': self.sell_volumes,
-            'ma5': self.ma5,
-            'ma10': self.ma10,
+            'ma5': _norm(self.ma5) if self.ma5 is not None else None,
+            'ma10': _norm(self.ma10) if self.ma10 is not None else None,
             'price_momentum': self.price_momentum,
             'byIndexFlag': self.byIndexFlag,
             'stock_type': self.stock_type,
@@ -3045,7 +3061,8 @@ def ReadWatchListAll_api(yuanta, stock_ids=None):
 
 def _save_stock_ref_json():
     """將 SUBSCRIPTION_STATE['stock_ref'] 寫入 stock_ref.json 供 dashboard 讀取，
-    同時將參考價寫入 @stockID.csv（若當日尚無記錄）。"""
+    同時將參考價寫入 @stockID.csv（若當日尚無記錄）。
+    CSV 欄位與 _write_daily_summary() 統一使用中文格式。"""
     ref = SUBSCRIPTION_STATE.get('stock_ref', {})
     if not ref:
         return
@@ -3057,15 +3074,19 @@ def _save_stock_ref_json():
         print(f"[{dt.datetime.now()}] stock_ref.json 寫入失敗: {e}")
 
     today = dt.datetime.now().strftime("%Y%m%d")
+    fieldnames = ["日期", "stock_id", "開盤價", "最高價", "最低價",
+                  "收盤價", "成交股數", "成交金額", "成交筆數",
+                  "total_in_volume", "total_out_volume", "estimated_day_volume"]
     for stock_id, info in ref.items():
         filename = f"@{stock_id}.csv"
-        # 檢查當日是否已有記錄
+        # 檢查當日是否已有記錄（中文欄位名）
         skip = False
         if os.path.exists(filename):
             try:
-                with open(filename, encoding="utf-8", errors="replace") as f:
+                with open(filename, encoding="utf-8-sig", errors="replace") as f:
                     for row in csv.DictReader(f):
-                        if row.get("date", "") == today:
+                        d = row.get("日期", row.get("date", ""))
+                        if d == today:
                             skip = True
                             break
             except Exception:
@@ -3074,9 +3095,6 @@ def _save_stock_ref_json():
             continue
 
         yst_price = info.get("yst_price", 0)
-        fieldnames = ["date", "stock_id", "open_price", "high_price", "low_price",
-                      "close_price", "total_volume", "total_in_volume", "total_out_volume",
-                      "estimated_day_volume", "trade_count"]
         try:
             file_exists = os.path.exists(filename)
             with open(filename, "a", newline="", encoding="utf-8") as f:
@@ -3084,19 +3102,20 @@ def _save_stock_ref_json():
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow({
-                    "date": today,
+                    "日期": today,
                     "stock_id": stock_id,
-                    "open_price": yst_price,
-                    "high_price": None,
-                    "low_price": None,
-                    "close_price": yst_price,
-                    "total_volume": 0,
+                    "開盤價": 0,
+                    "最高價": 0,
+                    "最低價": 0,
+                    "收盤價": 0,
+                    "成交股數": 0,
+                    "成交金額": 0,
+                    "成交筆數": 0,
                     "total_in_volume": 0,
                     "total_out_volume": 0,
                     "estimated_day_volume": 0,
-                    "trade_count": 0,
                 })
-            print(f"[{dt.datetime.now()}] @{stock_id}.csv 已建立今日參考價: {yst_price}")
+            print(f"[{dt.datetime.now()}] @{stock_id}.csv 已建立今日參考價預留: {yst_price}")
         except Exception as e:
             print(f"[{dt.datetime.now()}] @{stock_id}.csv 寫入失敗: {e}")
 
@@ -3271,7 +3290,7 @@ def _write_daily_summary(stock_id: str, state):
 
     now = dt.datetime.now()
 
-    # 正規化價格：API 五檔回傳 ×10000 整數，若 >100000 視為未除
+    # 正規化價格：build_save_record() 已輸出「元」，此處 _norm 為安全防護（值 <100000 不變）
     def _norm(p):
         if p is None:
             return 0.0
@@ -3284,8 +3303,12 @@ def _write_daily_summary(stock_id: str, state):
     close_p = _norm(record.get("close_price"))
     price_diff = round(close_p - open_p, 2)
 
-    # 累積總量：使用 state.total_volume（Python int，不會溢位）
-    total_volume = int(getattr(state, 'total_volume', 0) or 0)
+    # 使用累積內外盤量（state 累積值），非 record 的 interval delta
+    cum_in = int(getattr(state, 'total_in_volume', 0) or 0)
+    cum_out = int(getattr(state, 'total_out_volume', 0) or 0)
+    total_volume = cum_in + cum_out
+    if total_volume == 0:
+        total_volume = int(getattr(state, 'total_volume', 0) or 0)
 
     # 總成交金額：優先從 extra_data 取 API 64-bit 值，否則以收盤價估算
     extra = getattr(state, 'extra_data', {}) or {}
@@ -3316,8 +3339,8 @@ def _write_daily_summary(stock_id: str, state):
                 "成交股數": total_volume,
                 "成交金額": total_amount,
                 "成交筆數": record.get("trade_count"),
-                "total_in_volume": record.get("total_in_volume") or 0,
-                "total_out_volume": record.get("total_out_volume") or 0,
+                "total_in_volume": cum_in,
+                "total_out_volume": cum_out,
                 "estimated_day_volume": record.get("estimated_day_volume") or 0,
             })
         # 同步更新到 yesterday/ 供隔日載入
