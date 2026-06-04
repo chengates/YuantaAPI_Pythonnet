@@ -66,6 +66,38 @@ def to_uint32(v):
         return v + 0x100000000  # 2^32
     return v
 
+def _intraday_volume_progress(elapsed_min: float) -> float:
+    """台股日內累積成交量分布曲線（分段線性）。
+    回傳已過時間對應的預估累積成交量比例 (0~1)。
+
+    實測分布參考（保守估計，隨實際數據調整）:
+      09:00-09:30 (0-30min):   累積 ~22%
+      09:30-11:00 (30-120min): 累積 ~42%
+      11:00-12:00 (120-180min):累積 ~58%
+      12:00-13:00 (180-240min):累積 ~70% (午盤量縮)
+      13:00-13:25 (240-265min):累積 ~92% (尾盤急拉)
+      13:25-13:30 (265-270min):累積 100%
+    """
+    if elapsed_min <= 0:
+        return 0.01
+    nodes = [
+        (0, 0),
+        (30, 0.22),
+        (120, 0.42),
+        (180, 0.58),
+        (240, 0.70),
+        (265, 0.92),
+        (270, 1.0),
+    ]
+    for i in range(len(nodes) - 1):
+        t0, v0 = nodes[i]
+        t1, v1 = nodes[i + 1]
+        if elapsed_min <= t1:
+            ratio = (elapsed_min - t0) / (t1 - t0)
+            return v0 + ratio * (v1 - v0)
+    return 1.0
+
+
 class StockQuoteState:
     def __init__(self, stock_id: str, market_no=None):
         self.stock_id = stock_id
@@ -202,38 +234,6 @@ class StockQuoteState:
             self.total_out_volume = to_uint32(int_value) * 1000
         elif byIndexFlag == '6':
             self.total_in_volume = to_uint32(int_value) * 1000
-
-def _intraday_volume_progress(elapsed_min: float) -> float:
-    """台股日內累積成交量分布曲線（分段線性）。
-    回傳已過時間對應的預估累積成交量比例 (0~1)。
-
-    實測分布參考（保守估計，隨實際數據調整）:
-      09:00-09:30 (0-30min):   累積 ~22%
-      09:30-11:00 (30-120min): 累積 ~42%
-      11:00-12:00 (120-180min):累積 ~58%
-      12:00-13:00 (180-240min):累積 ~70% (午盤量縮)
-      13:00-13:25 (240-265min):累積 ~92% (尾盤急拉)
-      13:25-13:30 (265-270min):累積 100%
-    """
-    if elapsed_min <= 0:
-        return 0.01
-    nodes = [
-        (0, 0),
-        (30, 0.22),
-        (120, 0.42),
-        (180, 0.58),
-        (240, 0.70),
-        (265, 0.92),
-        (270, 1.0),
-    ]
-    for i in range(len(nodes) - 1):
-        t0, v0 = nodes[i]
-        t1, v1 = nodes[i + 1]
-        if elapsed_min <= t1:
-            ratio = (elapsed_min - t0) / (t1 - t0)
-            return v0 + ratio * (v1 - v0)
-    return 1.0
-
 
     def _update_estimates(self):
         """盤中預估量：以分段時間權重曲線估算（反映台股開盤/尾盤量大、午盤量縮特性）。
