@@ -119,6 +119,7 @@ error\error.log
 | 1.6 | 2026-06-03 | 修復：`run.py` 雙開防護 — Kernel32 `OpenProcess` 檢查 PID 存活，拒絕重複啟動避免 DLL 鎖定當機；`web_dashboard.py` 漲跌停誤判 — `_get_limit_prices()` 驗證 `up_price > 昨收 > down_price`，不合法自動改用計算值 |
 | 1.7 | 2026-06-03 | 修復：CSV 成交量全為 0 — Watchlist flags 4/6 累積量取代失效的 byTemp 29，內外盤 ×1000 張→股，5 秒區間 delta 快照分離；OTC 股票 MarketNo 自動判斷（`_stock_market_no()`）；`GetUInt()`→`GetInt()` 對齊 IronPython；`build_save_record` 放寬條件納入五檔推斷 OHLC；CSV 欄位位移修復 |
 | 1.8 | 2026-06-03 | agent說已修復但後來檢查csv資料發現有誤,這表示memory沒有清楚紀錄.又做白工,又燒token連續在相同問題繞圈 `fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `﻿日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料,完全解決問題前這件事不該做,反而把某些正確資料抹除,重點是memory沒有把反覆錯誤的點記起來 |
+| 1.9 | 2026-06-04 | 價格單位統一：`build_save_record()._norm()` 將所有價格正規化為「元」（整數），消除 5 秒 CSV raw/normalized 混雜；`_save_stock_ref_json()` 英文欄位統一為中文；`_write_daily_summary()` total_in/out 改用 state 累積值；`fetch_daily_close.py` 保留既有 total_in/total_out；預估量改分段時間權重曲線 + 動態投影（actual_cum/progress）；昨均% 改增/縮顯示；`_intraday_volume_progress` 移至 class 外部修復類別中斷；專案架構獨立為 `CODE_MAP.md` |
 
 
 ## 請agent 協助確認獨立生成 code map ,代補充 *.json , 其他有效*.py 
