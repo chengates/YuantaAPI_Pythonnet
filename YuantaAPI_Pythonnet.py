@@ -70,23 +70,23 @@ def _intraday_volume_progress(elapsed_min: float) -> float:
     """台股日內累積成交量分布曲線（分段線性）。
     回傳已過時間對應的預估累積成交量比例 (0~1)。
 
-    實測分布參考（保守估計，隨實際數據調整）:
-      09:00-09:30 (0-30min):   累積 ~22%
-      09:30-11:00 (30-120min): 累積 ~42%
-      11:00-12:00 (120-180min):累積 ~58%
-      12:00-13:00 (180-240min):累積 ~70% (午盤量縮)
-      13:00-13:25 (240-265min):累積 ~92% (尾盤急拉)
+    實測分布參考（依 2317/2330 實際比對校準）:
+      09:00-09:30 (0-30min):   累積 ~25%
+      09:30-11:00 (30-120min): 累積 ~52%
+      11:00-12:00 (120-180min):累積 ~68%
+      12:00-13:00 (180-240min):累積 ~78% (午盤量縮)
+      13:00-13:25 (240-265min):累積 ~93% (尾盤急拉)
       13:25-13:30 (265-270min):累積 100%
     """
     if elapsed_min <= 0:
         return 0.01
     nodes = [
         (0, 0),
-        (30, 0.22),
-        (120, 0.42),
-        (180, 0.58),
-        (240, 0.70),
-        (265, 0.92),
+        (30, 0.25),
+        (120, 0.52),
+        (180, 0.68),
+        (240, 0.78),
+        (265, 0.93),
         (270, 1.0),
     ]
     for i in range(len(nodes) - 1):
@@ -2434,7 +2434,7 @@ def SubscribeFiveTick_out(abyData):
         market_no = dataGetter.GetByte()
         stock_id = dataGetter.GetStr(12)
         
-        byIndexFlag = str(dataGetter.GetByte())
+ㄨ        byIndexFlag = str(dataGetter.GetByte())
         state = get_quote_state(stock_id, market_no)
         state.byIndexFlag = byIndexFlag
 
