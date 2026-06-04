@@ -257,16 +257,17 @@ class StockQuoteState:
             self.volume_label = "盤後總量"
         else:
             elapsed_min = max((now - market_open).total_seconds() / 60.0, 1.0)
-            if self.prev_average_volume and self.prev_average_volume > 0:
-                # 分段時間權重：反映台股日內成交量分布
-                progress = _intraday_volume_progress(elapsed_min)
+            progress = _intraday_volume_progress(elapsed_min)
+            # 今日實際累積量（Watchlist flags 4+6，API 全日在線則為全日累積）
+            actual_cum = self.total_in_volume + self.total_out_volume
+            if actual_cum > 0 and progress > 0:
+                # 以今日實際量 / 時間進度 動態投影全日總量
+                self.estimated_day_volume = max(0, int(actual_cum / progress))
+            elif self.prev_average_volume and self.prev_average_volume > 0:
+                # 無今日累積量時，用昨日量 × 時間權重
                 self.estimated_day_volume = max(0, int(self.prev_average_volume * progress))
             elif self.total_volume:
-                progress = _intraday_volume_progress(elapsed_min)
-                if progress > 0:
-                    self.estimated_day_volume = max(0, int(self.total_volume / progress))
-                else:
-                    self.estimated_day_volume = None
+                self.estimated_day_volume = max(0, int(self.total_volume / progress))
             else:
                 self.estimated_day_volume = None
             self.volume_label = "盤中預估量"
