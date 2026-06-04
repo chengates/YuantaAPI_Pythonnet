@@ -421,15 +421,24 @@ class StockQuoteState:
 
         best_bid = self.buy_prices[0] if self.buy_prices else None
         best_ask = self.sell_prices[0] if self.sell_prices else None
+        bid_vol = self.buy_volumes[0] if self.buy_volumes else 0
+        ask_vol = self.sell_volumes[0] if self.sell_volumes else 0
+
+        # 無效掛單：價格為 0 或 成交量為 0 視為該側無單
+        if best_bid is not None and (best_bid == 0 or bid_vol == 0):
+            best_bid = None
+        if best_ask is not None and (best_ask == 0 or ask_vol == 0):
+            best_ask = None
+
         if best_bid is None and best_ask is None:
             return
 
         if best_bid is None:
-            inferred_price = best_ask  # 保持 API 原始整數
+            inferred_price = best_ask
         elif best_ask is None:
             inferred_price = best_bid
         else:
-            inferred_price = round((best_bid + best_ask) / 2)  # 原始整數中價，不除 10000
+            inferred_price = round((best_bid + best_ask) / 2)
 
         if inferred_price is None:
             return
