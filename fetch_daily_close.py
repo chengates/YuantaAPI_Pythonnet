@@ -119,6 +119,108 @@ def fetch_tpex_daily():
     return result
 
 
+# ---- 收盤比對 ----
+
+def compare_and_report(stock_id, date_str, official, threshold=0.005):
+    """比對 @stockID.csv 既有數據與官方數據，回傳誤差清單。
+    門檻 threshold 預設 0.5%（0.005）。
+    回傳 list[dict]：欄位、CSV值、官方值、誤差%。"""
+    path = f"@{stock_id}.csv"
+    csv_row = None
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                for r in csv.DictReader(f):
+                    d = r.get("日期", r.get("date", ""))
+                    if d == date_str:
+                        csv_row = r
+                        break
+        except Exception:
+            pass
+
+    if csv_row is None:
+        return [{"field": "-", "csv": "N/A", "official": "N/A", "pct": None, "flag": "CSV 無此日資料"}]
+
+    def _num(v):
+        try:
+            return float(v) if v else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    checks = [
+        ("收盤價", "收盤價", "close"),
+        ("最高價", "最高價", "high"),
+        ("最低價", "最低價", "low"),
+        ("成交股數", "成交股數", "vol"),
+        ("成交金額", "成交金額", "amount"),
+    ]
+
+    diffs = []
+    for label, csv_field, off_field in checks:
+        csv_val = _num(csv_row.get(csv_field, 0))
+        off_val = float(official.get(off_field, 0))
+        if off_val == 0:
+            continue
+        pct = abs(csv_val - off_val) / abs(off_val)
+        if pct > threshold:
+            diffs.append({
+                "field": label,
+                "csv": csv_val,
+                "official": off_val,
+                "pct": round(pct * 100, 2),
+                "flag": "超過0.5%"
+            })
+
+    # 檢查是否 OHLC 全部相同（資料未更新）
+    ohlc_fields = ["開盤價", "最高價", "最低價", "收盤價"]
+    if not diffs:
+        # 即使沒超過門檻，也檢查 OHLC 一致性
+        vals = [_num(csv_row.get(f, 0)) for f in ohlc_fields]
+        if len(set(vals)) == 1 and vals[0] > 0:
+            diffs.append({
+                "field": "OHLC",
+                "csv": vals[0],
+                "official": official.get("close", 0),
+                "pct": round(abs(vals[0] - official.get("close", 0)) / official.get("close", 0) * 100, 2),
+                "flag": "OHLC全部相同(可能五檔推斷)"
+            })
+
+    return diffs
+
+
+def print_comparison(stocks, date_str, all_data):
+    """列印比對報表"""
+    print(f"\n{'='*70}")
+    print(f"  收盤比對報告 ({date_str})  —  門檻 0.5%")
+    print(f"{'='*70}")
+    total_issues = 0
+    ok_count = 0
+
+    for sid in stocks:
+        if sid not in all_data:
+            continue
+        official = all_data[sid]
+        diffs = compare_and_report(sid, date_str, official)
+        if not diffs:
+            ok_count += 1
+            continue
+        print(f"\n--- {sid} ---")
+        for d in diffs:
+            flag = d.get("flag", "")
+            if d["field"] == "-":
+                print(f"  {flag}")
+            else:
+                print(f"  {d['field']}: CSV={d['csv']}  官方={d['official']}  誤差={d['pct']}%  [{flag}]")
+            total_issues += 1
+
+    print(f"\n{'='*70}")
+    print(f"  比對完成: {ok_count}/{len([s for s in stocks if s in all_data])} 無異常")
+    if total_issues > 0:
+        print(f"  發現 {total_issues} 項誤差超過 0.5%，請檢查上方明細")
+    print(f"{'='*70}\n")
+    return total_issues
+
+
 # ---- 寫入 ----
 
 def write_daily_summary(stock_id, date_str, info):
@@ -218,6 +320,7 @@ def main():
     parser = argparse.ArgumentParser(description="從公開資訊站取得收盤數據，寫入 @stockID.csv")
     parser.add_argument("--stocks", default=None, help="股票代碼逗號分隔 (預設: watchlist.json)")
     parser.add_argument("--no-tpex", action="store_true", help="跳過 TPEx")
+    parser.add_argument("--compare-only", action="store_true", help="僅比對不寫入")
     args = parser.parse_args()
 
     stocks = args.stocks.split(",") if args.stocks else load_watchlist_stocks()
@@ -234,6 +337,11 @@ def main():
 
     # 使用最近一筆資料的日期
     today_str = datetime.now().strftime("%Y%m%d")
+
+    if args.compare_only:
+        print("--compare-only 模式：僅比對不寫入\n")
+        issues = print_comparison(stocks, today_str, all_data)
+        return
 
     print(f"\n寫入 @stockID.csv 與 yesterday/:")
     written = 0
@@ -252,6 +360,9 @@ def main():
         update_stock_ref(results)
 
     print(f"\n完成: {written}/{len(stocks)} 筆")
+
+    # 收盤比對
+    print_comparison(stocks, today_str, all_data)
 
 
 if __name__ == "__main__":
