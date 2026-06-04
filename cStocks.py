@@ -1411,11 +1411,11 @@ if __name__ == "__main__":
     # 測試：鴻海使用深色模式，台積電使用亮色模式 [348, Conversation History] "D"表示日K = {'1分':'1T','5分':'5T','15分':'15T','30分':'30T','60分':'60T','日K':'D','週K':'W-FRI','月K':'ME'}
     fox = cStock("2317", "鴻海","D", "Dark")
     #fox = cStock("2317.TW", "鴻海")
-    fox.load_data("2317.csv",90)
+    fox.load_data("@2317.csv",90)
     fox.plot_all(block=False) #False = 未鎖定,程式不會卡住，可以繼續執行
 
     tsmc = cStock("2330.TW", "台積電")
-    tsmc.load_data("2330.csv")
+    tsmc.load_data("@2330.csv")
 
  
 
