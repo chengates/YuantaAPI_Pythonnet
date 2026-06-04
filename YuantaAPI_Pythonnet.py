@@ -468,7 +468,7 @@ class StockQuoteState:
             if p is None:
                 return None
             p = float(p)
-            return round(p / 10000.0, 2) if abs(p) > 100000 else round(p, 2)
+            return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
 
         # 計算 5 秒區間量差（累積量的 delta），而非最後一筆 tick 值
         interval_vol = max(0, self.total_volume - self._snap_total_vol)
@@ -3290,12 +3290,12 @@ def _write_daily_summary(stock_id: str, state):
 
     now = dt.datetime.now()
 
-    # 正規化價格：build_save_record() 已輸出「元」，此處 _norm 為安全防護（值 <100000 不變）
+    # 正規化價格：build_save_record() 已輸出「元」，此處 _norm 為安全防護
     def _norm(p):
         if p is None:
             return 0.0
         p = float(p)
-        return p / 10000.0 if abs(p) > 100000 else p
+        return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
 
     open_p = _norm(record.get("open_price"))
     high_p = _norm(record.get("high_price"))
