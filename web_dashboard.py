@@ -10,8 +10,10 @@ import time
 import threading
 from flask import Flask, Response, render_template_string, jsonify, request
 from option_pricing import OptionPricing, put_call_ratio_analysis
+import hedge_dashboard
 
 app = Flask(__name__)
+hedge_dashboard.register(app)
 sse_queue = queue.Queue()
 
 WATCHLIST_PATH = "watchlist.json"
@@ -40,7 +42,8 @@ def get_active_stocks():
     return entry.get("stocks", [])
 
 STOCKS = get_active_stocks()
-DATA_INTERVAL = 2
+DATA_INTERVAL = 0.5
+SNAPSHOT_DIR = "snapshot"
 HTML = r"""<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -88,13 +91,18 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .depth-table th{color:#8b949e;font-weight:normal;text-align:right;padding:1px 4px}
 .depth-table td{text-align:right;padding:1px 4px;font-variant-numeric:tabular-nums}
 .depth-table .bid{color:#3fb950}.depth-table .ask{color:#f85149}
-.stat-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px;color:#8b949e;border-top:1px solid #21262d;padding-top:4px}
+.stat-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px;color:#8b949e;border-top:1px solid #21262d;padding-top:4px}.stale{color:#f85149}.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.status-dot.live{background:#3fb950;box-shadow:0 0 6px #3fb950}.status-dot.stale{background:#f85149;box-shadow:0 0 6px #f85149}.status-dot.dead{background:#6e7681}
 </style>
 </head>
 <body>
 <div class="header">
-<h1>Yuanta OneAPI — 即時監控</h1>
+<h1>Yuanta OneAPI — 即時監控 <a href="/hedge" style="font-size:13px;color:#d2991d;text-decoration:none;margin-left:12px">避險</a></h1>
+<div style="display:flex;gap:8px;align-items:center">
 <select class="wl-select" id="wlSelect" onchange="switchWatchlist(this.value)"></select>
+<input id="stockSearch" placeholder="搜尋代號或名稱..." style="padding:6px 8px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:12px;width:160px" onkeyup="if(event.key==='Enter')addStock()">
+<button onclick="addStock()" style="padding:6px 12px;background:#238636;border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">+ 新增</button>
+<div id="searchResults" style="position:absolute;top:40px;background:#161b22;border:1px solid #30363d;border-radius:6px;z-index:99;display:none;max-height:200px;overflow-y:auto"></div>
+</div>
 </div>
 <div class="summary-bar" id="summary"></div>
 <button class="toggle-btn" id="recBtn" onclick="toggleAllRecords()">▸ 全部價量紀錄</button>
@@ -158,30 +166,36 @@ function cardHTML(s){
   if(s._records&&s._records.length){
     recs='<table class="depth-table" style="margin-top:4px"><tr><th>時間</th><th>成交價</th><th>量(張)</th><th>內盤</th><th>外盤</th><th>金額</th></tr>';
     for(const r of s._records){
-      recs+=`<tr><td>${r.time||'--'}</td><td>${fmt(r.price)}</td><td>${Math.round(r.vol/1000).toLocaleString()}</td><td>${Math.round(r.in_vol/1000).toLocaleString()}</td><td>${Math.round(r.out_vol/1000).toLocaleString()}</td><td>${(r.amt/1e4).toFixed(2)}萬</td></tr>`;
+      recs+=`<tr><td>${r.time||'--'}</td><td>${fmt(r.price)}</td><td>${vol(r.vol)}</td><td>${vol(r.in_vol)}</td><td>${vol(r.out_vol)}</td><td>${(Math.max(0,r.amt)/1e4).toFixed(2)}萬</td></tr>`;
     }
     recs+='</table>';
   }
   const uid='r'+s.stock_id;
-  return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span></h2>
+	  const recsOpen = _recsOpen ? ' open' : '';
+  return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span><button onclick="removeStock('${s.stock_id}')" title="移除" style="float:right;background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:0 4px">×</button></h2>
 <div class="price ${cls}${limitCls}">${fmt(s.close_price)} ${limitLabel} <span style="font-size:13px">${chgPct>0?'+'+chgPct:chgPct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
 <div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
 <div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">${s.pct_of_yesterday_avg!=null?(s.pct_of_yesterday_avg>=0?'增':'縮')+Math.abs(s.pct_of_yesterday_avg).toFixed(1)+'%':'--'}</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
+<div class="row" style="font-size:11px"><span class="muted">PE ${fmt(s.pe,1)||"--"}</span><span class="muted">PB ${fmt(s.pb,2)||"--"}</span><span class="muted" title="${s.peg_note||""}">PEG ${fmt(s.peg,2)||"--"}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
 <div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e4).toFixed(2)}萬 / ${vol(dealVol)}張</span></div>
-<div class="c-recs">${recs}</div>`;
+<div class="c-recs${recsOpen}">${recs}</div>`;
 }
 function render(data){
-  const g=document.getElementById('grid'), active=new Set(Object.keys(data));
+  const g=document.getElementById('grid'), active=new Set(Object.keys(data)), now=Date.now();
   for(const id of Object.keys(cards)){if(!active.has(id)){cards[id].remove();delete cards[id];}}
   for(const [id,s] of Object.entries(data)){
     let el=cards[id];
     if(!el){el=document.createElement('div');el.className='card';cards[id]=el;g.appendChild(el);}
     const h=cardHTML(s);if(el._h!==h){el.innerHTML=h;el._h=h;}
+    // 資料滯後 > 30 秒 → 邊框變紅警告
+    const ts=s.timestamp;let stale=false;
+    if(ts){const parts=ts.split(' ');if(parts.length>=2){const t=parts[1].split(':');const sec=now/1000-((+t[0])*3600+(+t[1])*60+(+t[2]));if(sec>30)stale=true;}}
+    el.style.borderColor=stale?'#f85149':'#30363d';
   }
   for(const[id,el] of Object.entries(cards)){
     const r=el.querySelector('.c-recs');if(r)r.classList.toggle('open',_recsOpen);
@@ -232,15 +246,144 @@ function toggleAllRecords(){
   }
 }
 const es=new EventSource('/stream');
-es.onopen=function(){statusEl.textContent='SSE 已連線'};
-es.onerror=function(){statusEl.textContent='SSE 斷線，重新連線中...'};
-es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);statusEl.textContent='更新 '+new Date().toLocaleTimeString()};
+let _lastUpdate=Date.now(),_staleCheck=null;
+es.onopen=function(){statusEl.innerHTML='<span class="status-dot live"></span>SSE 已連線'};
+es.onerror=function(){statusEl.innerHTML='<span class="status-dot dead"></span>SSE 斷線，重新連線中...'};
+es.onmessage=function(e){const d=JSON.parse(e.data);render(d);summary(d);_lastUpdate=Date.now();statusEl.innerHTML='<span class="status-dot live"></span>更新 '+new Date().toLocaleTimeString()};
+_staleCheck=setInterval(function(){
+  const sec=Math.round((Date.now()-_lastUpdate)/1000);
+  if(sec>10)statusEl.innerHTML='<span class="status-dot stale"></span>資料滯後 '+sec+'秒';
+},2000);
+
+async function addStock(){
+  const inp=document.getElementById('stockSearch'),q=inp.value.trim();
+  if(!q)return;
+  const r=await fetch('/api/watchlist/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock_id:q})});
+  const d=await r.json();
+  if(d.ok){inp.value='';location.reload();}
+  else alert(d.error||'新增失敗');
+}
+async function removeStock(sid){
+  if(!confirm(`確定要移除 ${sid} 嗎？`))return;
+  const r=await fetch('/api/watchlist/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock_id:sid})});
+  const d=await r.json();
+  if(d.ok)location.reload();
+  else alert(d.error||'移除失敗');
+}
+let _searchTimer=null;
+document.getElementById('stockSearch').addEventListener('input',function(){
+  clearTimeout(_searchTimer);
+  const q=this.value.trim();
+  if(!q){document.getElementById('searchResults').style.display='none';return;}
+  _searchTimer=setTimeout(async()=>{
+    const r=await fetch('/api/stock/search?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const div=document.getElementById('searchResults');
+    if(!d.results.length){div.style.display='none';return;}
+    div.innerHTML=d.results.map(s=>`<div style="padding:4px 8px;cursor:pointer;font-size:12px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background=''" onclick="document.getElementById('stockSearch').value='${s.symbol}';document.getElementById('searchResults').style.display='none';addStock()">${s.symbol} ${s.name}</div>`).join('');
+    div.style.display='block';
+  },200);
+});
+document.addEventListener('click',function(e){if(!e.target.closest('#stockSearch')&&!e.target.closest('#searchResults'))document.getElementById('searchResults').style.display='none';});
+
 </script>
 </body>
 </html>"""
 
 
+def read_snapshot(stock_id: str) -> dict | None:
+    """從 snapshot/{stock_id}.json 讀取最新狀態（0.5 秒更新）。"""
+    path = os.path.join(SNAPSHOT_DIR, f"{stock_id}.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            snap = json.load(f)
+        # 轉換為 dashboard 相容格式（與 read_latest_csv 回傳格式一致）
+        d = {
+            "stock_id": snap.get("stock_id", stock_id),
+            "stock_name": get_stock_name(stock_id),
+            "buy_prices": snap.get("buy_prices", []),
+            "buy_volumes": snap.get("buy_volumes", []),
+            "sell_prices": snap.get("sell_prices", []),
+            "sell_volumes": snap.get("sell_volumes", []),
+            "buy_total_volume": max(0, snap.get("buy_total_volume", 0) or 0),
+            "sell_total_volume": max(0, snap.get("sell_total_volume", 0) or 0),
+            "buy_sell_imbalance": snap.get("buy_sell_imbalance"),
+            # 優先使用累積值（API 提供的總成交金額/總量），區間值作為降級
+            "deal_amount": snap.get("cumulative_deal_amount") if snap.get("cumulative_deal_amount") is not None else snap.get("deal_amount"),
+            "close_price": snap.get("close_price"),
+            "open_price": snap.get("open_price"),
+            "high_price": snap.get("high_price"),
+            "low_price": snap.get("low_price"),
+            "price_diff": snap.get("price_diff"),
+            "deal_volume": snap.get("cumulative_deal_volume") if snap.get("cumulative_deal_volume") is not None else max(0, snap.get("deal_volume", 0) or 0),
+            "trade_count": snap.get("trade_count"),
+            "total_in_volume": max(0, snap.get("total_in_volume", 0) or 0),
+            "total_out_volume": max(0, snap.get("total_out_volume", 0) or 0),
+            "estimated_day_volume": max(0, snap.get("estimated_day_volume", 0) or 0),
+            "volume_label": snap.get("volume_label", "估日量"),
+            "pct_of_yesterday_avg": snap.get("pct_of_yesterday_avg"),
+            "ma5": snap.get("ma5"),
+            "ma10": snap.get("ma10"),
+            "stock_type": snap.get("stock_type", ""),
+            "timestamp": snap.get("timestamp", ""),
+            "participation_score": snap.get("participation_score"),
+            "participation_label": snap.get("participation_label", ""),
+            # 財務數據 (PE/PB/PEG)
+            "pe": None, "pb": None, "peg": None, "peg_note": "",
+            "ref_price": _get_ref_price(stock_id, snap.get("open_price")),
+            "limit_state": _calc_limit_state(snap.get("close_price"), stock_id),
+            "_records": snap.get("records", []),
+        }
+        # 載入財務數據
+        fin = _load_financials()
+        if fin and stock_id in fin.get("stocks", {}):
+            fs = fin["stocks"][stock_id]
+            d["pe"] = fs.get("pe")
+            d["pb"] = fs.get("pb")
+            d["peg"] = fs.get("peg")
+            d["peg_note"] = fs.get("peg_note", "")
+        # 盤後若 snapshot records 為空，從 CSV 讀取完整紀錄
+        if not d["_records"]:
+            from datetime import datetime as _dt
+            if _dt.now().hour >= 14:
+                d["_records"] = _recent_rows_api(stock_id, n=10)
+        # 盤後用 @stockID.csv 覆蓋
+        actual_vol, day_info = _get_actual_day_volume(stock_id)
+        if actual_vol is not None:
+            d["estimated_day_volume"] = actual_vol
+            d["volume_label"] = "盤後總量"
+        if day_info is not None:
+            if day_info.get("close") is not None:
+                d["close_price"] = day_info["close"]
+            if day_info.get("open") is not None:
+                d["open_price"] = day_info["open"]
+            if day_info.get("high") is not None:
+                d["high_price"] = day_info["high"]
+            if day_info.get("low") is not None:
+                d["low_price"] = day_info["low"]
+            if d["close_price"] is not None and d["open_price"] is not None:
+                d["price_diff"] = round(d["close_price"] - d["open_price"], 2)
+            d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
+        # 補救 stock_type
+        if not d["stock_type"] or d["stock_type"] == "unknown":
+            d["stock_type"] = _detect_stock_type(stock_id, d["close_price"])
+        # 補救 participation
+        if d["participation_label"] in ("", "N/A", "等待資料") and d["total_in_volume"] + d["total_out_volume"] > 0:
+            d["participation_score"] = round((d["total_in_volume"] - d["total_out_volume"]) / (d["total_in_volume"] + d["total_out_volume"]) * 50, 1)
+            d["participation_label"] = _score_to_label(d["participation_score"])
+        return d
+    except Exception:
+        return None
+
+
 def read_latest_csv(stock_id: str) -> dict | None:
+    """讀取最新 CSV 資料（作為 snapshot 不存在時的降級方案）。"""
+    # 優先讀取 snapshot（0.5 秒更新，1KB 小檔案）
+    snap = read_snapshot(stock_id)
+    if snap is not None and snap.get("close_price") is not None:
+        return snap
     path = f"{stock_id}.csv"
     if not os.path.exists(path):
         return None
@@ -298,6 +441,12 @@ def read_latest_csv(stock_id: str) -> dict | None:
             except (TypeError, ValueError):
                 return None
 
+        # 累積成交總額/總量（CSV 中有 cumulative_ 前綴的欄位）
+        cum_vol = _normalize_volume(_num(row, "cumulative_volume", int))
+        cum_amt = None
+        if cum_vol and close_price:
+            cum_amt = int(cum_vol * close_price)
+
         d = {
             "stock_id": row.get("stock_id", stock_id),
             "stock_name": get_stock_name(stock_id),
@@ -308,13 +457,14 @@ def read_latest_csv(stock_id: str) -> dict | None:
             "buy_total_volume": max(0, buy_total_volume),
             "sell_total_volume": max(0, sell_total_volume),
             "buy_sell_imbalance": buy_sell_imbalance,
-            "deal_amount": deal_amount,
+            # 優先使用累積值，區間值為降級
+            "deal_amount": cum_amt if cum_amt else deal_amount,
             "close_price": close_price,
             "open_price": open_price,
             "high_price": _normalize_price(_num(row, "high_price")),
             "low_price": _normalize_price(_num(row, "low_price")),
             "price_diff": price_diff,
-            "deal_volume": _normalize_volume(deal_volume),
+            "deal_volume": cum_vol if cum_vol else _normalize_volume(deal_volume),
             "trade_count": _num(row, "trade_count", int),
             "total_in_volume": _normalize_volume(_num(row, "total_in_volume", int)),
             "total_out_volume": _normalize_volume(_num(row, "total_out_volume", int)),
@@ -407,18 +557,20 @@ def _get_ref_price(stock_id: str, fallback_open=None):
 
 
 def _get_limit_prices(stock_id: str):
-    """從 stock_ref.json 取得漲停價/跌停價。若無 API 資料或資料不合理則以昨收價推算。
+    """取得漲停價/跌停價。
+    優先: stock_ref.json API 提供的 up_price/down_price（已考量除權息調整）
+    降級: 昨收價 ×1.10 / ×0.90（標準 10%）
     回傳 (up_price, down_price) 或 (None, None)。"""
     yst = _get_ref_price(stock_id)
     ref = _load_stock_ref()
     entry = ref.get(stock_id, {})
-    up_price = _normalize_price(entry.get("up_price"))
-    down_price = _normalize_price(entry.get("down_price"))
-    # 驗證 stock_ref.json 的漲跌停價是否合理：漲停 > 昨收 > 跌停
-    if up_price is not None and down_price is not None and yst is not None:
-        if up_price > yst and down_price < yst:
-            return up_price, down_price
-    # 降級: 用昨收價 * 1.10 / 0.90 推算
+    api_up = _normalize_price(entry.get("up_price"))
+    api_down = _normalize_price(entry.get("down_price"))
+    # 驗證 API 值合理性：漲停 > 昨收 > 跌停
+    if api_up is not None and api_down is not None and yst is not None:
+        if api_up > yst > api_down:
+            return api_up, api_down
+    # 降級：直接用昨收計算 ±10%
     if yst is not None and yst > 0:
         return round(yst * 1.10, 2), round(yst * 0.90, 2)
     return None, None
@@ -435,8 +587,99 @@ def _calc_limit_state(close_price, stock_id):
         return 'down'
     return None
 
-#todo:如果保持此方法,需透過skill每月1~4自動觸發更新,建議,最好放在一個json或csv裡,保持原碼,不被變更及便於計算市值,不須每個月更新,otc易同
+# 市值分類快取（從 market_cap.json 載入）
+_market_cap_cache = None
+_market_cap_cache_time = 0
+
+
+def _load_market_cap():
+    """載入市值排名資料（含 1 小時快取）。"""
+    global _market_cap_cache, _market_cap_cache_time
+    now = time.time()
+    if _market_cap_cache is not None and now - _market_cap_cache_time < 3600:
+        return _market_cap_cache
+    path = "market_cap.json"
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                _market_cap_cache = json.load(f)
+            _market_cap_cache_time = now
+            return _market_cap_cache
+        except Exception:
+            pass
+    return None
+
+
+_fin_cache = None
+_fin_cache_time = 0
+
+
+def _load_financials():
+    """載入財務數據（優先 analyst_eps.json → 降級 stock_financials.json）。
+    含 1 小時快取。"""
+    global _fin_cache, _fin_cache_time
+    now = time.time()
+    if _fin_cache is not None and now - _fin_cache_time < 3600:
+        return _fin_cache
+
+    result = {}
+    # 1) 優先: analyst_eps.json (法人預估共識)
+    analyst_path = "analyst_eps.json"
+    if os.path.exists(analyst_path):
+        try:
+            with open(analyst_path, encoding="utf-8") as f:
+                analyst = json.load(f)
+            for code, s in analyst.get("stocks", {}).items():
+                peg_info = s.get("peg", {}) or {}
+                result[code] = {
+                    "pe": peg_info.get("forward_pe"),
+                    "pb": None,
+                    "peg": peg_info.get("peg"),
+                    "peg_note": f"法人預估EPS={s.get('consensus_eps','?')} ({s.get('method','?')})"
+                }
+        except Exception:
+            pass
+
+    # 2) 降級: stock_financials.json (近四季 EPS)
+    fin_path = "stock_financials.json"
+    if os.path.exists(fin_path):
+        try:
+            with open(fin_path, encoding="utf-8") as f:
+                fin = json.load(f)
+            for code, s in fin.get("stocks", {}).items():
+                if code not in result or result[code].get("pe") is None:
+                    result[code] = {
+                        "pe": s.get("pe"),
+                        "pb": s.get("pb"),
+                        "peg": s.get("peg"),
+                        "peg_note": s.get("peg_note", ""),
+                    }
+        except Exception:
+            pass
+
+    # 3) 補 market_cap.json 的 PE/PB
+    mcap = _load_market_cap()
+    if mcap:
+        for code, s in mcap.get("stocks", {}).items():
+            if code in result:
+                if result[code].get("pe") is None:
+                    result[code]["pe"] = s.get("pe")
+                if result[code].get("pb") is None:
+                    result[code]["pb"] = s.get("pb")
+
+    _fin_cache = result
+    _fin_cache_time = now
+    return result
 def _detect_stock_type(stock_id: str, price=None) -> str:
+    """依市值排名分類：大型/中型/小型。
+    優先使用 market_cap.json（每月更新），降級使用內建 0050 清單。"""
+    # 1) market_cap.json 排名
+    mcap = _load_market_cap()
+    if mcap and stock_id in mcap.get("stocks", {}):
+        tier = mcap["stocks"][stock_id].get("tier", "")
+        if tier in ("large_cap", "mid_cap", "small_cap"):
+            return tier
+    # 2) 降級：內建 0050 成分股清單
     tw50 = {
         '2330', '2317', '2454', '2412', '2881', '2882', '2886', '2891',
         '2308', '2303', '2327', '2344', '2345', '2357', '2379', '2382',
@@ -487,21 +730,23 @@ def _num(row, key, cast=float):
 
 
 def poll_worker():
-    last_mtimes = {}
+    last_snap_mtimes = {}
     while True:
         stocks = get_active_stocks()
         data = {}
         for sid in stocks:
-            path = f"{sid}.csv"
-            try:
-                mt = os.path.getmtime(path) if os.path.exists(path) else 0
-                if mt != last_mtimes.get(sid, 0):
-                    last_mtimes[sid] = mt
-            except OSError:
-                pass
+            # 檢查 snapshot 是否有更新
+            snap_path = os.path.join(SNAPSHOT_DIR, f"{sid}.json")
+            snap_mt = os.path.getmtime(snap_path) if os.path.exists(snap_path) else 0
+            need_refresh = snap_mt != last_snap_mtimes.get(sid, 0)
+            if need_refresh:
+                last_snap_mtimes[sid] = snap_mt
+
             rec = read_latest_csv(sid)
             d = rec if rec else _empty_card(sid)
-            d["_records"] = _recent_rows_api(sid)
+            # 使用 snapshot 內建的 records；若無則降級讀 CSV
+            if not d.get("_records"):
+                d["_records"] = _recent_rows_api(sid)
             data[sid] = d
         if data:
             sse_queue.put(data)
@@ -670,6 +915,96 @@ def api_switch_watchlist(name):
         _active_watchlist = name
         return jsonify({"ok": True, "active": name, "stocks": wl[name].get("stocks", [])})
     return jsonify({"ok": False, "error": f"自選股 '{name}' 不存在"}), 404
+
+
+@app.route("/api/watchlist/add", methods=["POST"])
+def api_watchlist_add():
+    """新增股票到目前自選股，同步寫入 watchlist.json。"""
+    data = request.get_json(silent=True) or {}
+    stock_id = str(data.get("stock_id", "")).strip()
+    if not stock_id or not stock_id.isdigit() or len(stock_id) != 4:
+        return jsonify({"ok": False, "error": "請提供有效的 4 碼股票代號"}), 400
+
+    wl = load_watchlists()
+    entry = wl.get(_active_watchlist, wl.get("自選股1", {"stocks": [], "futures": []}))
+    stocks = entry.get("stocks", [])
+    if stock_id in stocks:
+        return jsonify({"ok": False, "error": f"{stock_id} 已在自選股中"})
+
+    stocks.append(stock_id)
+    entry["stocks"] = stocks
+    wl[_active_watchlist] = entry
+    with open(WATCHLIST_PATH, "w", encoding="utf-8") as f:
+        json.dump(wl, f, ensure_ascii=False, indent=2)
+
+    # 嘗試為新股票取得昨日資料
+    _fetch_new_stock_data(stock_id)
+
+    # 更新全局股票清單
+    global STOCKS
+    STOCKS = get_active_stocks()
+    return jsonify({"ok": True, "added": stock_id, "stocks": stocks,
+                    "name": get_stock_name(stock_id)})
+
+
+@app.route("/api/watchlist/remove", methods=["POST"])
+def api_watchlist_remove():
+    """從目前自選股移除股票，同步寫入 watchlist.json。"""
+    data = request.get_json(silent=True) or {}
+    stock_id = str(data.get("stock_id", "")).strip()
+
+    wl = load_watchlists()
+    entry = wl.get(_active_watchlist, wl.get("自選股1", {"stocks": [], "futures": []}))
+    stocks = entry.get("stocks", [])
+    if stock_id not in stocks:
+        return jsonify({"ok": False, "error": f"{stock_id} 不在自選股中"})
+
+    stocks.remove(stock_id)
+    entry["stocks"] = stocks
+    wl[_active_watchlist] = entry
+    with open(WATCHLIST_PATH, "w", encoding="utf-8") as f:
+        json.dump(wl, f, ensure_ascii=False, indent=2)
+
+    global STOCKS
+    STOCKS = get_active_stocks()
+    return jsonify({"ok": True, "removed": stock_id, "stocks": stocks})
+
+
+@app.route("/api/stock/search")
+def api_stock_search():
+    """模糊搜尋股票（代號 or 名稱），回傳前 20 筆。"""
+    q = (request.args.get("q", "")).strip()
+    if not q:
+        return jsonify({"results": []})
+    names = load_names()
+    results = []
+    q_lower = q.lower()
+    for sid, cname in names.items():
+        if q in sid or q_lower in cname.lower():
+            results.append({"symbol": sid, "name": cname})
+        if len(results) >= 20:
+            break
+    return jsonify({"results": results})
+
+
+def _fetch_new_stock_data(stock_id: str):
+    """為新加入的自選股取得昨日收盤資料與參考價。"""
+    import subprocess, sys
+    try:
+        result = subprocess.run(
+            [sys.executable, "fetch_daily_close.py", "--stocks", stock_id, "--compare-only"],
+            capture_output=True, text=True, timeout=60,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        # 先嘗試比對，若有資料缺漏則實際寫入
+        if "無異常" not in result.stdout:
+            subprocess.run(
+                [sys.executable, "fetch_daily_close.py", "--stocks", stock_id],
+                capture_output=True, text=True, timeout=60,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+    except Exception:
+        pass  # 背景執行，失敗不影響 UI
 
 
 @app.route("/api/lookup")

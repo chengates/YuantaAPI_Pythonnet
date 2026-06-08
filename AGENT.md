@@ -20,8 +20,8 @@
 |YuantaAPI_Pythonnet.py：即時報價訂閱、CSV 輸出（5 秒）持久化|資料尚有 error 參考 \error\error.log 資料夾的error.log及附圖|
 |web_simulation.py：5秒級別的（觀察 web_dashboard 與 CSV 的一致性）| tool 回測（觀察 web_dashboard 與 CSV 的一致性）|
 |run.py  |追加自動啟動YuantaAPI_Pythonnet.py|避免雙開,# 自動排程：交易日 08:30 自動啟動 run.py |
----
 
+---
 
 ## 2. 重要原則
 
@@ -40,7 +40,8 @@
 | web_simulation.py：5秒級別的（觀察 web_dashboard 與 CSV 的一致性）| 觀察 web_dashboard 與 CSV 的一致性 |量價顯示單位是張,確保csv持久化單位是股|設計tool回測（觀察 web_dashboard 與 CSV 的一致性）,已知bug參考路徑error|
 | `PRD.md` / `SPEC.md` / `README.md` | 文件 | 功能變更時同步更新 README.md後,才能github |
 | `requirements.txt` | 相依版本 | 含 Pillow；`mplfonts init` 需安裝後手動執行 |
-| error|說明附圖|不一定按error list順序,先處理agent認為容易或關鍵重點 | 
+| error|說明附圖|不一定按error list順序,先處理agent認為容易或關鍵重點 |
+
 ---
 
 ## 4. 類別關係（修改時對照）
@@ -52,14 +53,17 @@ StockQuoteState(code, name, price, volume, bid_price, ask_price, timestamp)
 *Web Dashboard — 即時多股監控畫面 (Flask + SSE)*
 DashboardApp
     └── 讀取 CSV → 更新儀表板（秒級）
-```	
+```
+
 ## 5. 關鍵資料規格
+
 - **CSV 單位**：API 收到的值**不除以 1000**依收到的值合併實務需求持久化保存於 CSV 以「股」為單位。顯示時才 ÷1000 轉為「張」。
 - **市場排程**：`pre_open` (09:00 前) → `trading` (09:00-13:30，每 5 秒寫 CSV) → `matching` (13:30後-14:30，暫停 CSV) → `closed` (14:30+，寫入日總結後停止)
 - **昨收參考價來源**（web_dashboard 顏色基準）：`stock_ref.json` (API) → `@stockID.csv` 最後一筆 close_price → 今日開盤價
 - **watchlist.json**：自選股設定，支援多組自選股（自選股1/2/3），dashboard 可切換,增刪改查
 - **stock_names.json**：股票代號 ↔ 公司名稱對照表（~1979 筆），可從 TWSE/TPEx 自動更新
 - **accountEnv.json**：帳號密碼設定，已 gitignore，不可提交
+
 ---
 
 ## 6. 測試與驗證清單
@@ -71,11 +75,26 @@ pip install -r requirements.txt
 python run.py #開盤日
 python sim_run.py #模擬器,非開盤日
 ```
+
 ---
-## 7. 已知問題/代辦 list（Agent 可優先修）: 
+
+## 7. 已知問題/代辦 list（Agent 可優先修）
+
+## todo: 6/8
+
+- run.py 啟動時,畫面顯示api已啟動,實際沒有運作,csv沒產出,後來手動開啟
+- pe/pb/peg光有label無顯示值,看起來analyst_eps.json,沒有根據watchlist生成,這中間需要設計工具來生成analyst_eps.json,或是dashboard直接根據watchlist去抓取資料,agent在思考時,我有看到你有提到彼此關係,但實作卻沒落實,這表示你有失憶的問題,你需要落實check point,這樣才不會一直繞圈
+- 9:51:2330估量增約99% dashboard<40 直到9:53估量增約100%dashboard38.9瞬間90%一下子又回到38%
+- 9:56:2317估量增約50%+/-1% dashboard70%-80.9%
+- 看起來盤中預估量的計算有改善空間,為何會有兩個不同結果,是因為memory沒有把這個問題點記起來,所以又繞回去改了同一個地方,又出現了同樣的問題? 這表示memory沒有學習到這個問題點,所以才會一直繞圈,這也是為什麼我說你有失憶的問題,你需要把這些重複出現的問題點記起來,並且記住解決方案,我有確認pct_of_yesterday_avg是正確的
+- 個股右上角的成交總額/總量會慢慢消失,一檔檔變成x,如error\index.html,也可以看盤後index.html可以確定沒斷線,因其他欄位有在更新,但接近13:00 2330的預估量%誤差還是大13:15(盤中預估量42736這裡增加的值不應該)量縮1.9%,因已>昨日量及5日均量
+- 盤中新增各股,dashboard僅呈現等待資料,無csv,估計沒有通知api,沒有使用工具fetch_daily_close.py,請將工具的設計系統化,回復完成修改項目時,務必已通過測試與驗證清單,並且已經確認目標資料正確產出,避免上下文失憶問題
+- 漲跌停判斷：不再依賴 stock_ref.json 的過期 API 值，改以昨收價 ×1.10/0.90 直接計算,是否考慮到除權息,增減資,分割等因素,這些因素會影響昨收價,如果不考慮這些因素,可能會導致漲跌停判斷錯誤,建議在計算昨收價時,考慮這些因素,或者在 stock_ref.json 中加入調整後的昨收價
+
 error\error.log
 
 ## 8. 設定檔
+
 - `watchlist.json` — 自選股分組（stocks + futures）
 - `stock_names.json` — 全台股名對照
 - `stock_ref.json` — API 查詢的昨收/漲停/跌停參考價
@@ -90,9 +109,10 @@ error\error.log
 
 | 變更類型 | 更新檔案 |
 |----------|----------|
-| 新功能／完成待辦 | `PRD.md` 狀態、`README.md` 功能列表 | 
+| 新功能／完成待辦 | `PRD.md` 狀態、`README.md` 功能列表 |
 | 公式、欄位、JSON、事件 | `SPEC.md` |
 | Agent 流程、禁忌、目錄 | `AGENT.md`（本檔） | github前,請把修改重點寫入AGENT.md本檔11.修訂紀錄,詳細細節紀錄在changelog.md以利確認追踪,或bug發生時回退
+
 ---
 
 ## 10. 溝通模板
@@ -102,7 +122,6 @@ error\error.log
 1. 改了什麼、為什麼（一句話目標）
 2. 如何驗證（命令 + 目視點 + tool）
 3. 是否影響  CSV
-
 
 ---
 
@@ -118,19 +137,18 @@ error\error.log
 | 1.5 | 2026-06-03 | 修復：int32 溢位 — 新增 `to_uint32()` 防護 API 回傳負值成交量；僵屍 `.api_active` 旗標偵測與自動清除；`@stockID.csv` 日總結重建（10 檔）、`yesterday/` 備份建立、`stock_ref.json` 擴充 |
 | 1.6 | 2026-06-03 | 修復：`run.py` 雙開防護 — Kernel32 `OpenProcess` 檢查 PID 存活，拒絕重複啟動避免 DLL 鎖定當機；`web_dashboard.py` 漲跌停誤判 — `_get_limit_prices()` 驗證 `up_price > 昨收 > down_price`，不合法自動改用計算值 |
 | 1.7 | 2026-06-03 | 修復：CSV 成交量全為 0 — Watchlist flags 4/6 累積量取代失效的 byTemp 29，內外盤 ×1000 張→股，5 秒區間 delta 快照分離；OTC 股票 MarketNo 自動判斷（`_stock_market_no()`）；`GetUInt()`→`GetInt()` 對齊 IronPython；`build_save_record` 放寬條件納入五檔推斷 OHLC；CSV 欄位位移修復 |
-| 1.8 | 2026-06-03 | agent說已修復但後來檢查csv資料發現有誤,這表示memory沒有清楚紀錄.又做白工,又燒token連續在相同問題繞圈 `fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `﻿日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料,完全解決問題前這件事不該做,反而把某些正確資料抹除,重點是memory沒有把反覆錯誤的點記起來 |
+| 1.8 | 2026-06-03 | agent說已修復但後來檢查csv資料發現有誤,這表示memory沒有清楚紀錄.又做白工,又燒token連續在相同問題繞圈 `fetch_daily_close.py` CSV 去重永久失效 — BOM（`﻿`）導致 DictReader 第一欄位名變成 `日期` ≠ `日期`，`r.get("日期")` 永遠取得空字串；讀取編碼從 `utf-8` 改為 `utf-8-sig` 自動去除 BOM；清理所有 `@stockID.csv` 重複資料,完全解決問題前這件事不該做,反而把某些正確資料抹除,重點是memory沒有把反覆錯誤的點記起來 |
 | 1.9 | 2026-06-04 | 價格單位統一：`build_save_record()._norm()` 將所有價格正規化為「元」（整數），消除 5 秒 CSV raw/normalized 混雜；`_save_stock_ref_json()` 英文欄位統一為中文；`_write_daily_summary()` total_in/out 改用 state 累積值；`fetch_daily_close.py` 保留既有 total_in/total_out；預估量改分段時間權重曲線 + 動態投影（actual_cum/progress）；昨均% 改增/縮顯示；`_intraday_volume_progress` 移至 class 外部修復類別中斷；專案架構獨立為 `CODE_MAP.md` |
+| 2.0 | 2026-06-05 | **Dashboard 全面升級**: 0.5s snapshot 系統（469x 加速）、漲跌停計算修復、全部價量紀錄三 bug、自選股 UI 增刪改查、連線狀態監控（SSE dot + 滯後警告 + 卡片紅框）。**資料工具**: fetch_daily_close.py 日期偵測修復（不再標記錯誤日期）、@stockID.csv/yesterday/stock_ref.json 全修復、resample_1min.py（5 秒→1 分 K）、update_market_cap.py（TWSE/TPEx 市值排名+PE/PB）、update_financials.py（近四季 EPS+PEG）、fetch_analyst_eps.py（法人預估聚合+trimmed mean+動態 PEG）。**避險**: hedge_dashboard.py（期現貨基差+理論價+動態門檻+大戶動向+個股期）。**啟動**: run.py v2（API subprocess + 盤前檢查 + PEG 更新）。**預估量**: v2 速率加權（固定曲線×0.7 + 5分鐘速率×0.3） |
+| 2.1 | 2026-06-08 | **啟動穩定性修復**: run.py API subprocess stdout 阻塞（加入 reader thread + .api_active 驗證 30s timeout）、snapshot 原子寫入（tmp→replace 避免半寫入）、成交總額/總量改累積值、漲跌停優先 API 值、盤中新增個股自動重訂、PE/PB/PEG 涵蓋全部自選股、昨日量載入編碼修正。詳見 CHANGELOG.md |
 
+## 請agent 協助確認獨立生成 code map ,代補充 *.json , 其他有效*.py
 
-## 請agent 協助確認獨立生成 code map ,代補充 *.json , 其他有效*.py 
 每日開盤前兩件事：
 fetch_daily_close.py  TPEx/OTC OpenAPI : 前日收盤數據校正或當日晚上執行它 — 用官方數據覆蓋今日收盤價和總量,
 tomorrow-premarket-tasks.md 可恢復上下文,位於C:\Users\gates\.claude\projects\D--workCS-TEST-2026-YuantaOneAPI-Python-YuantaOneAPI-Python\memory\tomorrow-premarket-tasks.md
 repair_daily_summary.py — 從 5 秒 CSV 重建日總結檔，修正格式不一致、int32 溢位歷史資料、缺少 yesterday/ 備份
-`stock_ref.json`: 自選股擴充code檔數，要同時補齊參考價,例如增加 6412/6122/6123/8936 
+`stock_ref.json`: 自選股擴充code檔數，要同時補齊參考價,例如增加 6412/6122/6123/8936
 Web Dashboard: `web_dashboard.py` — Flask + SSE 即時多股監控畫面
-run.py 防止雙開,startup api/Dashboard 開盤日 
+run.py 防止雙開,startup api/Dashboard 開盤日
 sim_run.py 防止雙開,startup api/Dashboard 非開盤時,增加資料模擬器
-
-Resume this session with:
-claude --resume 9e573b2c-8886-444c-8ec9-862266f4c584

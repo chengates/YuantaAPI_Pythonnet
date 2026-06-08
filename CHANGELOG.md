@@ -1,4 +1,56 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
+
+## [2026-06-08] — 啟動穩定性 + 資料一致性修復
+
+### Fixed
+- **run.py API subprocess stdout 阻塞**: `stdout=PIPE` 無人讀取導致子程序緩衝區滿後阻塞，CSV 無法產出。新增 background reader thread + `.api_active` 旗標驗證（最多等 30s），確保 API 實際啟動
+- **PE/PB/PEG 僅 2 檔有值**: `analyst_eps.json` 只有 2330/2317；`update_financials.py` 只處理 `_QUARTERLY_EPS` 中的 15 檔。修正為自動涵蓋所有自選股，無 EPS 資料時從 PE 反推估算，`run.py` 盤前檢查自動執行 `update_financials.py`
+- **Dashboard 成交總額/總量消失**: snapshot 的 `deal_amount`/`deal_volume` 為 5 秒區間 delta（無成交時為 0）。新增 `cumulative_deal_volume` + `cumulative_deal_amount` 欄位（API 64-bit 累積值），dashboard 優先使用累積值
+- **Snapshot 原子寫入**: `_write_snapshots()` 直接寫入 JSON → dashboard 同時讀取可能讀到半寫入檔案，導致數值瞬間跳動。改為 `tmp → os.replace()` 原子操作
+- **漲跌停判斷降級順序**: `_get_limit_prices()` 之前直接無視 API 提供的 up_price/down_price（已考量除權息調整）。修正為優先使用 API 值（驗證 up > yst > down 合理性），僅無效時降級到計算值
+- **盤中新增個股無 CSV**: Dashboard UI 新增股票後 API 程序無感知。`load_watchlist_config()` 改為自動偵測 mtime 變更；60s 重訂週期偵測 watchlist.json 變更並自動訂閱新股 + 讀取參考價
+- **昨日量載入編碼**: `_load_yesterday_data()` 使用 `pd.read_csv()` 無指定 encoding，可能因 BOM 導致欄位錯位。加入 `encoding="utf-8"` + 日總結格式單列值保護
+
+### Changed
+- `YuantaAPI_Pythonnet.py`: `_write_snapshots()` 改用原子寫入；`_load_yesterday_data()` 加入編碼與格式判斷；`load_watchlist_config()` 支援 mtime 自動重載；60s 重訂週期偵測新股票
+- `run.py`: API subprocess 啟動加入 stdout reader thread + `.api_active` 等待驗證（30s timeout）；新增 `_run_financials_update()` 盤前自動執行
+- `web_dashboard.py`: `read_snapshot()` 優先使用 `cumulative_deal_volume`/`cumulative_deal_amount`；`_get_limit_prices()` 優先使用 API up_price/down_price
+- `update_financials.py`: `build_financials()` 自動涵蓋自選股清單；無 PE/PB 時從已知 EPS 估算
+- `snapshot_writer.py`: 改用原子寫入
+
+## [2026-06-05] — Dashboard 全面升級 + PEG 系統 + 避險儀表板
+
+### Fixed
+- **fetch_daily_close.py 日期錯亂**: TWSE OpenAPI (`STOCK_DAY_ALL`) 不回傳日期，15:00 前回傳前日資料卻標記為今日，導致 @stockID.csv 被寫入錯誤日期。新增 `_detect_twse_data_date()` / `_detect_tpex_data_date()` 自動偵測 API 實際日期後才寫入
+- **@stockID.csv 全修復**: 06-03/06-04 開盤價=0 補齊官方數據；06-05 被 fetch_daily_close.py 誤覆蓋的資料從 TWSE STOCK_DAY API 還原；@6412.csv 日期偏移完全重建
+- **yesterday/ + stock_ref.json**: 10 檔全修正為正確 06-05 收盤資料，補齊 up_price/down_price（±10% 計算）
+- **漲跌停燈號**: `_get_limit_prices()` 不再依賴 stock_ref.json 的過期 API 值，改為 `昨收 × 1.10 / 0.90` 直接計算
+- **全部價量紀錄三 bug**: (1) 負值 — records table 改用 `vol()` 函數 + `Math.max(0, r.amt)` 防護 (2) 展開後收合 — `_recsOpen` 狀態嵌入 cardHTML，0.5s 刷新不再閃爍 (3) 盤後資料空 — 收盤後 fallback 到 CSV 讀取完整 records
+- **PE/PB 未寫入 market_cap.json**: `build_rankings()` 存入 stocks dict 時遺漏 PE/PB 欄位，修正 pass-through
+- **web_dashboard.py PEP/PB/PEG 語法錯誤**: 財務資料載入時 `_records` 誤放在 dict 外，修正結構
+
+### Added
+- **Dashboard 0.5s 快照系統**: API 端 `_write_snapshots()` 每 0.5s 寫入 `snapshot/{stock_id}.json`（~1KB），dashboard 讀取加速 **469 倍**（0.1ms vs 56.2ms），poll interval 2s→0.5s
+- **snapshot_writer.py**: 獨立 snapshot 產生器，從 CSV 讀取寫入 snapshot/，供 sim_run 或盤後測試使用
+- **盤中預估量 v2**: 固定曲線投影 + 5 分鐘速率加權（開盤 50:50，盤中 70:30）；新增 `total_volume` 備援（OTC/Watchlist 掉線時）
+- **run.py v2**: 每日一站式啟動 — 雙開防護 → 交易日判斷 → 盤前資料檢查（@stockID.csv + stock_ref.json + PEG）→ 啟動 API subprocess → 啟動 Dashboard；關閉時自動清理 API 子程序
+- **resample_1min.py**: 5 秒 CSV → 1 分 K 轉換工具，對齊 cStock.load_data() 格式（日期,OHLCV）。支援單股/全股/指定日期/多日範圍。實測: 2330 產出 271 根完整交易日
+- **自選股 UI 增刪改查**: POST `/api/watchlist/add` + `/api/watchlist/remove` + GET `/api/stock/search`。前端搜尋列 + 下拉建議 + 卡片移除按鈕。新增時自動執行 fetch_daily_close.py 補齊參考價
+- **市值排名系統**: `update_market_cap.py` — 從 TWSE BWIBBU_ALL + STOCK_DAY_ALL + TPEx API 估算全市場市值排名。`market_cap.json` — TWSE 1078 檔 + OTC 5440 檔的排名/PE/PB/tier。`_detect_stock_type()` 優先使用市值排名，降級內建 0050 清單
+- **連線狀態監控**: SSE 狀態 dot（綠/紅/灰燈）+ 資料滯後 >10 秒警告 + 卡片邊框變紅（>30 秒無更新）
+- **避險儀表板**: `hedge_dashboard.py` 獨立 Blueprint（/hedge）— TXF 期現貨基差監控 + 理論期貨價（持有成本模型）+ 動態避險門檻（歷史標準差 ×1.5）+ 大戶動向（TAIFEX 前5/前10）+ 個股期貨避險
+- **PE/PB/PEG 系統**: `update_financials.py` — 從 BWIBBU PE 反推 EPS + 近四季 EPS 計算 PEG。`fetch_analyst_eps.py` — 多來源聚合 + trimmed mean 20% 去極端值 + 動態 PEG。dashboard 卡片顯示 PE/PB/PEG（tooltip 顯示公式）。三層降級: `analyst_eps.json` → `stock_financials.json` → `market_cap.json`
+- **stock_financials.json**: 近四季 EPS + 成長率 + PEG 快取
+- **analyst_eps.json**: 法人預估 EPS（手動填入 → 自動計算 PEG）
+- **CODE_MAP.md**: 全面更新 — 新增 resample_1min.py, snapshot_writer.py, hedge_dashboard.py, update_market_cap.py, update_financials.py, fetch_analyst_eps.py；常用指令速查表；資料流更新
+
+### Changed
+- `web_dashboard.py` DATA_INTERVAL: 2s → 0.5s；新增 `read_snapshot()` 優先讀取快照；`_get_limit_prices()` 改為計算式；`_detect_stock_type()` 整合市值排名；新增 PE/PB/PEG 顯示列
+- `fetch_daily_close.py`: `update_stock_ref()` 同步寫入 up_price/down_price；`update_yesterday()` 日期格式 YYYYMMDD→YYYY-MM-DD
+- `YuantaAPI_Pythonnet.py`: `show()` 新增 snapshot 計時器；`StockQuoteState` 新增 `_vol_snapshot` 預估量欄位
+- `market_cap.json`: stocks dict 新增 pe/pb/close 欄位
+- `watchlist.json`: futures 欄位預留期貨代碼空間
+
 ## [2026-06-03]
 
 ### Fixed

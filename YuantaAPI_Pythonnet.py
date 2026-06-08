@@ -133,6 +133,8 @@ class StockQuoteState:
         self.ma5 = None
         self.ma10 = None
         self.price_momentum = None
+        # 預估量改進：追蹤近期成交量速率
+        self._vol_snapshot = (0, 0.0)  # (cum_vol_at_snapshot, timestamp)
         self.last_saved_timestamp = None
         self.yesterday_volume = None
         self.yesterday_close = None
@@ -236,8 +238,16 @@ class StockQuoteState:
             self.total_in_volume = to_uint32(int_value) * 1000
 
     def _update_estimates(self):
-        """盤中預估量：以分段時間權重曲線估算（反映台股開盤/尾盤量大、午盤量縮特性）。
-        盤前顯示昨日量參考，盤後顯示實際總量。"""
+        """盤中預估量 v2：動態投影 + 近期速率加權。
+
+        三層級：
+        1. 主力：Watchlist 累積內外盤量 / 時間進度 → 全日投影
+        2. 備援：StockTick total_volume / 時間進度（OTC 或 Watchlist 掉線時）
+        3. 降級：昨日量 × 時間權重（無任何今日數據時）
+
+        近期速率加權：追蹤最近 5 分鐘成交量速率，與固定曲線投影做 30:70 加權，
+        使預估能快速響應當日活躍度變化。
+        """
         now = dt.datetime.now()
         market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
         market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
@@ -246,7 +256,10 @@ class StockQuoteState:
             self.estimated_day_volume = self.prev_average_volume
             self.volume_label = "盤前預估量"
         elif now >= market_close:
+            # 盤後：以內外盤合計或 total_volume 為實際總量
             actual_volume = self.total_in_volume + self.total_out_volume
+            if actual_volume <= 0:
+                actual_volume = self.total_volume
             if actual_volume > 0:
                 self.estimated_day_volume = actual_volume
                 self.total_volume = actual_volume
@@ -258,26 +271,56 @@ class StockQuoteState:
         else:
             elapsed_min = max((now - market_open).total_seconds() / 60.0, 1.0)
             progress = _intraday_volume_progress(elapsed_min)
-            # 今日實際累積量（Watchlist flags 4+6，API 全日在線則為全日累積）
+
+            # 最佳累積量：優先 Watchlist 內外盤，其次 StockTick total_volume
             actual_cum = self.total_in_volume + self.total_out_volume
+            if actual_cum <= 0:
+                actual_cum = self.total_volume
+
+            # --- 固定曲線投影 ---
+            curve_est = None
             if actual_cum > 0 and progress > 0:
-                # 以今日實際量 / 時間進度 動態投影全日總量
-                self.estimated_day_volume = max(0, int(actual_cum / progress))
+                curve_est = int(actual_cum / progress)
             elif self.prev_average_volume and self.prev_average_volume > 0:
-                # 無今日累積量時，用昨日量 × 時間權重
-                self.estimated_day_volume = max(0, int(self.prev_average_volume * progress))
-            elif self.total_volume:
-                self.estimated_day_volume = max(0, int(self.total_volume / progress))
+                curve_est = int(self.prev_average_volume * progress)
+
+            # --- 近期速率投影（5 分鐘視窗） ---
+            velocity_est = None
+            now_ts = time.time()
+            prev_cum, prev_ts = self._vol_snapshot
+            if prev_ts > 0 and actual_cum > prev_cum:
+                dt_sec = now_ts - prev_ts
+                if dt_sec >= 30:  # 至少 30 秒才更新速率
+                    rate_per_sec = (actual_cum - prev_cum) / dt_sec
+                    # 全日剩餘秒數
+                    remaining_sec = max((market_close - now).total_seconds(), 0)
+                    velocity_est = int(actual_cum + rate_per_sec * remaining_sec)
+
+            # 每 60 秒更新一次速率快照
+            if prev_ts == 0 or now_ts - prev_ts >= 60:
+                self._vol_snapshot = (actual_cum, now_ts)
+
+            # --- 加權混合 ---
+            if curve_est is not None and velocity_est is not None and curve_est > 0:
+                # 近期速率 30% + 固定曲線 70%（開盤 30 分鐘內速率權重提高到 50%）
+                vel_weight = 0.5 if elapsed_min <= 30 else 0.3
+                curve_weight = 1.0 - vel_weight
+                self.estimated_day_volume = max(0, int(velocity_est * vel_weight + curve_est * curve_weight))
+            elif curve_est is not None:
+                self.estimated_day_volume = max(0, curve_est)
+            elif velocity_est is not None:
+                self.estimated_day_volume = max(0, velocity_est)
             else:
-                self.estimated_day_volume = None
+                self.estimated_day_volume = self.prev_average_volume
+
             self.volume_label = "盤中預估量"
 
         if self.estimated_day_volume is not None and self.estimated_day_volume < 0:
             self.estimated_day_volume = 0
 
         if self.prev_average_volume and self.estimated_day_volume is not None and self.estimated_day_volume > 0:
-            # 改為增/縮比例：正值=增加，負值=減少
-            self.pct_of_yesterday_avg = round((self.estimated_day_volume - self.prev_average_volume) / self.prev_average_volume * 100, 2)
+            self.pct_of_yesterday_avg = round(
+                (self.estimated_day_volume - self.prev_average_volume) / self.prev_average_volume * 100, 2)
         else:
             self.pct_of_yesterday_avg = None
 
@@ -382,13 +425,13 @@ class StockQuoteState:
     def _load_yesterday_data(self):
         """載入昨日成交量作為 prev_average_volume。
         從 yesterday/{stock_id}.csv 讀取，支援兩種格式：
-        - 日總結格式（欄位：成交股數）
-        - 日內明細格式（欄位：deal_volume）"""
+        - 日總結格式（欄位：成交股數）— 單列合計
+        - 日內明細格式（欄位：deal_volume）— 多列合計"""
         yesterday_path = os.path.join("yesterday", f"{self.stock_id}.csv")
         if not os.path.exists(yesterday_path):
             return
         try:
-            df = pd.read_csv(yesterday_path)
+            df = pd.read_csv(yesterday_path, encoding="utf-8")
             if len(df) == 0:
                 return
             # 嘗試多種成交量欄位名稱
@@ -398,7 +441,13 @@ class StockQuoteState:
                     vol_col = col
                     break
             if vol_col:
-                vol = int(df[vol_col].sum())
+                # 日總結格式：只有一列資料，取該列值（非 sum）
+                # 檢查是否為日總結（通常只有 1 列，或有「日期」欄位）
+                if "日期" in df.columns and len(df) <= 2:
+                    vol = int(df[vol_col].iloc[0]) if len(df) > 0 else 0
+                else:
+                    # 日內明細格式：多列 deal_volume 加總
+                    vol = int(df[vol_col].sum())
                 # 防禦：拒絕負值或天文數字 (>1e10 股不可能)
                 if 0 < vol < 1e10:
                     self.yesterday_volume = vol
@@ -2932,16 +2981,28 @@ def send_OvFuture_order(yuanta):
 # ═══════════════════════════════════════════════════════════════
 WATCHLIST_CONFIG = {}
 WATCHLIST_NAME = "自選股1"
+WATCHLIST_MTIME = 0  # watchlist.json 最後修改時間，用於偵測變更
 
 def load_watchlist_config(path: str = "watchlist.json"):
-    """載入自選股 JSON 設定檔。"""
-    global WATCHLIST_CONFIG
-    if os.path.exists(path):
+    """載入自選股 JSON 設定檔。回傳 True 表示有變更。"""
+    global WATCHLIST_CONFIG, WATCHLIST_MTIME
+    if not os.path.exists(path):
+        return False
+    try:
+        mtime = os.path.getmtime(path)
+        if mtime == WATCHLIST_MTIME:
+            return False  # 無變更
         with open(path, encoding="utf-8") as f:
             WATCHLIST_CONFIG = json.load(f)
+        WATCHLIST_MTIME = mtime
+        return True
+    except Exception as e:
+        print(f"[watchlist] 載入設定失敗: {e}")
+        return False
 
 def get_watchlist(name: str = None) -> dict:
-    """取得指定自選股清單，預設使用 WATCHLIST_NAME。"""
+    """取得指定自選股清單。每次呼叫時自動檢查 watchlist.json 是否更新。"""
+    load_watchlist_config()  # 自動重新載入（無變更則跳過）
     name = name or WATCHLIST_NAME
     return WATCHLIST_CONFIG.get(name, {"stocks": [], "futures": []})
 
@@ -3424,6 +3485,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
 
     saved_records = []
     last_save_time = time.time()
+    last_snapshot_time = time.time()  # Dashboard 快照計時器
     last_subscribe_time = time.time()
     last_watchlist_subscribe_time = time.time()  # WatchlistAll/Stocktick 獨立週期
     prev_phase = _market_phase()
@@ -3469,9 +3531,12 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                             _daily_summary_written.add(stock_id)
                     print(f"[{dt.datetime.now()}] 收盤完成，CSV 輸出凍結 (進程保持存活供 dashboard 讀取)")
                     _csv_frozen = True
-                # 繼續循環但不寫 CSV，只更新顯示
+                # 繼續循環但不寫 CSV，只更新顯示與快照
                 for state in list(SUBSCRIPTION_STATE['stocks'].values()):
                     _display_quote_info(state)
+                if current_time - last_snapshot_time >= 0.5:
+                    _write_snapshots()
+                    last_snapshot_time = current_time
                 await asyncio.sleep(update_interval)
                 prev_phase = phase
                 continue
@@ -3510,12 +3575,20 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
             # 每 60 秒重新訂閱全部四種訂閱，防止個股（尤其 OTC）訂閱過期掉線
+            # 同時重新讀取參考價，處理盤中新增股票
             if current_time - last_watchlist_subscribe_time >= 60 and phase in ('trading', 'matching'):
                 if 'objYuantaOneAPI' in globals():
+                    # 記錄重訂前的 watchlist.json 修改時間，用於偵測新增
+                    old_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
                     SubscribeWatchlistAll_api(objYuantaOneAPI)
                     SubscribeWatchlist_api(objYuantaOneAPI)
                     SubscribeFiveTick_api(objYuantaOneAPI)
                     SubscribeStocktick_api(objYuantaOneAPI)
+                    new_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
+                    if new_mtime > old_mtime:
+                        # watchlist.json 有變更，重新讀取參考價供新股用
+                        print(f"[{dt.datetime.now()}] watchlist.json 有變更，重新讀取參考價")
+                        ReadWatchListAll_api(objYuantaOneAPI)
                     last_watchlist_subscribe_time = current_time
                     print(f"[{dt.datetime.now()}] 週期性重新訂閱全部 (WatchlistAll+Watchlist+FiveTick+Stocktick)")
 
@@ -3550,6 +3623,11 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
             for state in list(SUBSCRIPTION_STATE['stocks'].values()):
                 _display_quote_info(state)
 
+            # Dashboard 快照：每 0.5 秒寫入 snapshot/*.json（高速讀取用）
+            if current_time - last_snapshot_time >= 0.5:
+                _write_snapshots()
+                last_snapshot_time = current_time
+
             await asyncio.sleep(update_interval)
             prev_phase = phase
 
@@ -3572,16 +3650,16 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
 async def _save_to_csv_async(stock_id, record):
     """
     異步保存數據到 CSV 文件
-    
+
     Args:
         stock_id: 股票代碼
         record: 要保存的記錄
     """
     try:
         filename = f"{stock_id}.csv"
-        
+
         file_exists = os.path.exists(filename)
-        
+
         with open(filename, 'a', newline='', encoding='utf-8') as f:
             fieldnames = [
                 'timestamp', 'stock_id', 'deal_volume', 'deal_amount', 'open_price', 'high_price', 'low_price',
@@ -3635,6 +3713,117 @@ async def _save_to_csv_async(stock_id, record):
             
     except Exception as e:
         print(f"保存 CSV 文件出現錯誤: {e}")
+
+
+# ---- Dashboard 快照 (0.5 秒更新) ----
+_SNAPSHOT_DIR = "snapshot"
+_SNAPSHOT_RECORDS = {}  # {stock_id: [record, ...]} 保留最近 10 筆交易區間供 dashboard 顯示
+
+
+def _write_snapshots():
+    """將所有股票當前狀態寫入 snapshot/{stock_id}.json（覆寫模式）。
+    供 web_dashboard.py 高速讀取，避免每次 poll 讀取 2MB+ 的 5 秒 CSV。
+    每 0.5 秒呼叫一次。"""
+    os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
+    for stock_id, state in list(SUBSCRIPTION_STATE.get('stocks', {}).items()):
+        try:
+            if isinstance(state, StockQuoteState):
+                record = state.build_save_record()
+            else:
+                record = state
+            if not record:
+                continue
+
+            # 正規化價格輔助
+            def _np(p):
+                if p is None:
+                    return None
+                p = float(p)
+                return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
+
+            # 累積值（供 dashboard 顯示總內外盤量）
+            cum_in = max(0, state.total_in_volume if isinstance(state, StockQuoteState) else record.get('cumulative_in_volume', 0) or 0)
+            cum_out = max(0, state.total_out_volume if isinstance(state, StockQuoteState) else record.get('cumulative_out_volume', 0) or 0)
+            cum_vol = max(0, state.total_volume if isinstance(state, StockQuoteState) else record.get('cumulative_volume', 0) or 0)
+
+            # 更新交易記錄緩衝（5 秒區間 delta）
+            interval_in = record.get('total_in_volume', 0) or 0
+            interval_out = record.get('total_out_volume', 0) or 0
+            interval_vol = record.get('deal_volume', 0) or 0
+            deal_amt = record.get('deal_amount', 0) or 0
+            ts = record.get('timestamp', '')
+            if interval_in > 0 or interval_out > 0 or interval_vol > 0:
+                buf = _SNAPSHOT_RECORDS.setdefault(stock_id, [])
+                # 避免重複寫入同一筆（用 timestamp 去重）
+                if not buf or buf[-1].get('time') != ts[-8:]:
+                    buf.append({
+                        'time': ts[-8:],
+                        'price': record.get('close_price'),
+                        'vol': max(0, interval_vol),
+                        'in_vol': max(0, interval_in),
+                        'out_vol': max(0, interval_out),
+                        'amt': max(0, deal_amt),
+                    })
+                    # 只保留最近 30 筆
+                    if len(buf) > 30:
+                        _SNAPSHOT_RECORDS[stock_id] = buf[-30:]
+
+            # 累積成交總額：優先使用 API 64-bit total_amt，降級用 cum_vol × close_price 估算
+            extra = getattr(state, 'extra_data', {}) or {}
+            total_amt_raw = extra.get('total_amt', 0)
+            if total_amt_raw and total_amt_raw > 0:
+                cum_deal_amount = int(total_amt_raw / 10000) if total_amt_raw > 1e12 else int(total_amt_raw)
+            elif cum_vol > 0 and record.get('close_price'):
+                cum_deal_amount = int(cum_vol * record['close_price'])
+            else:
+                cum_deal_amount = 0
+
+            snap = {
+                'timestamp': ts,
+                'stock_id': record.get('stock_id', stock_id),
+                'open_price': record.get('open_price'),
+                'high_price': record.get('high_price'),
+                'low_price': record.get('low_price'),
+                'close_price': record.get('close_price'),
+                'price_diff': record.get('price_diff'),
+                'deal_volume': max(0, interval_vol),     # 5 秒區間成交量（與 CSV 一致）
+                'deal_amount': record.get('deal_amount'),
+                'cumulative_deal_volume': cum_vol,        # 累積總成交量（股）
+                'cumulative_deal_amount': cum_deal_amount, # 累積總成交金額（元）
+                'trade_count': record.get('trade_count'),
+                'total_in_volume': cum_in,                # 累積內盤量（dashboard 顯示用）
+                'total_out_volume': cum_out,              # 累積外盤量（dashboard 顯示用）
+                'estimated_day_volume': record.get('estimated_day_volume'),
+                'volume_label': record.get('volume_label'),
+                'pct_of_yesterday_avg': record.get('pct_of_yesterday_avg'),
+                'prev_average_volume': state.prev_average_volume if isinstance(state, StockQuoteState) else record.get('prev_average_volume'),
+                'buy_total_volume': record.get('buy_total_volume'),
+                'sell_total_volume': record.get('sell_total_volume'),
+                'buy_sell_imbalance': record.get('buy_sell_imbalance'),
+                'buy_sell_pressure': record.get('buy_sell_pressure'),
+                'buy_prices': record.get('buy_prices', []),
+                'buy_volumes': record.get('buy_volumes', []),
+                'sell_prices': record.get('sell_prices', []),
+                'sell_volumes': record.get('sell_volumes', []),
+                'ma5': record.get('ma5'),
+                'ma10': record.get('ma10'),
+                'price_momentum': record.get('price_momentum'),
+                'stock_type': record.get('stock_type'),
+                'participation_score': record.get('participation_score'),
+                'participation_label': record.get('participation_label'),
+                'records': _SNAPSHOT_RECORDS.get(stock_id, [])[-10:],  # 最近 10 筆交易區間
+            }
+            fpath = os.path.join(_SNAPSHOT_DIR, f"{stock_id}.json")
+            # 原子寫入：先寫 .tmp 再 rename，避免 dashboard 讀到半寫入檔案
+            tmp_path = fpath + ".tmp"
+            try:
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(snap, f, ensure_ascii=False)
+                os.replace(tmp_path, fpath)  # Windows 上 os.replace 為原子操作
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 def _display_quote_info(state):
