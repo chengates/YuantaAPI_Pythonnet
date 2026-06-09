@@ -1,51 +1,77 @@
 {
   "2344": {
-    "yst_price": 1775000,
-    "up_price": 1705000,
-    "down_price": 1395000,
-    "yst_vol": 332157125,
+    "yst_price": 1540000,
+    "up_price": 1694000,
+    "down_price": 1386000,
+    "yst_vol": 179964848,
     "stock_name": "華邦電"
   },
   "2330": {
-    "yst_price": 24250000,
-    "up_price": 25300000,
-    "down_price": 20700000,
-    "yst_vol": 29219904,
+    "yst_price": 22950000,
+    "up_price": 25245000,
+    "down_price": 20655000,
+    "yst_vol": 52273858,
     "stock_name": "台積電"
   },
   "2317": {
-    "yst_price": 3090000,
-    "up_price": 2900000,
-    "down_price": 2380000,
-    "yst_vol": 149620933,
+    "yst_price": 2695000,
+    "up_price": 2964500,
+    "down_price": 2425500,
+    "yst_vol": 117863651,
     "stock_name": "鴻海"
   },
   "2356": {
-    "yst_price": 854000,
-    "yst_vol": 198106662
+    "yst_price": 692000,
+    "yst_vol": 17530602,
+    "up_price": 761200,
+    "down_price": 622800
   },
   "2609": {
-    "yst_price": 537000,
-    "yst_vol": 61465906
+    "yst_price": 517000,
+    "yst_vol": 66798155,
+    "up_price": 568700,
+    "down_price": 465300
   },
   "2610": {
-    "yst_price": 199500,
-    "yst_vol": 55672254
+    "yst_price": 190500,
+    "yst_vol": 59519767,
+    "up_price": 209600,
+    "down_price": 171400
   },
   "6412": {
-    "yst_price": 1045000,
-    "yst_vol": 5816496
+    "yst_price": 940000,
+    "yst_vol": 5414590,
+    "up_price": 1034000,
+    "down_price": 846000
   },
   "6122": {
-    "yst_price": 483500,
-    "yst_vol": 216053
+    "yst_price": 477000,
+    "yst_vol": 335430,
+    "up_price": 524700,
+    "down_price": 429300
   },
   "6123": {
-    "yst_price": 473000,
-    "yst_vol": 305296
+    "yst_price": 456000,
+    "yst_vol": 121685,
+    "up_price": 501599,
+    "down_price": 410400
   },
   "8936": {
-    "yst_price": 601000,
-    "yst_vol": 21554366
+    "yst_price": 577000,
+    "yst_vol": 12328102,
+    "up_price": 634700,
+    "down_price": 519300
+  },
+  "2354": {
+    "yst_price": 564000,
+    "yst_vol": 13376502,
+    "up_price": 620400,
+    "down_price": 507600
+  },
+  "9907": {
+    "yst_price": 164500,
+    "yst_vol": 4160019,
+    "up_price": 181000,
+    "down_price": 148000
   }
 }
