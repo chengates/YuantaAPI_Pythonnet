@@ -1,5 +1,22 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
 
+## [2026-06-09] — 價格精度 + 累積量單位 + PE/PB/PEG 修復
+
+### Fixed
+- **價格精度（百元內股票被整數捨入）**: `_norm()` 四份拷貝均用 `round(p/10000.0)` 整數捨入，造成 50-100 元股票（跳動 0.1 元）失去小數位精度（如 2356 永遠顯示 70.0 而非 70.2/70.4）。改為 `round(p/10000.0, 2)` 保留 2 位小數。同時門檻從 `> 100000` 改為 `>= 10000`，覆蓋所有 ≥1 元的股票。影響四處：`build_save_record()`, `_write_daily_summary()`, `_write_snapshots()`, `_load_yesterday_data()`
+- **成交總額/總量變成「x」**: `_write_snapshots()` 的 `cum_vol` 使用 `state.total_volume`，但 WatchlistAll byTemp 29 的 `total_vol` 單位是「張」且未 ×1000 轉換，而 `total_in/out_volume` 已由 Watchlist flags 4/6 正確轉為「股」。修正為優先使用 `total_in_volume + total_out_volume`（可靠的股值），並將 `cum_deal_amount` 改為 `cum_vol × close_price` 計算
+- **WatchlistAll byTemp 29 單位轉換**: `total_in/total_out/total_vol` 從 API 取值後未 ×1000（張→股），與 Watchlist flags 4/6 已轉換的值不一致。修正 `OnWatchListAllData` callback 中的賦值為 `total_in * 1000`、`total_out * 1000`、`total_vol * 1000`
+- **PE/PB/PEG 永遠無值**: `_load_financials()` 回傳 flat dict `{code: {pe, pb, peg}}`，但 `read_snapshot()` 用 `fin.get("stocks", {})` 存取（expects nested `{stocks: {code: {...}}}`），永遠取得空 dict。修正 `read_snapshot()` 直接使用 `fin[stock_id]`
+- **run.py API 啟動驗證不確實**: `.api_active` 原本在登入檢查前就建立，run.py 看到旗標即認為啟動成功但實際登入可能失敗。修正為登入成功後才建立 `.api_active`。同時 run.py 新增 CSV 產出二次驗證（等待 20s 確認 2330/2317.csv 有更新）
+- **stock_ref.json 缺 2354/9907**: 補齊參考價（含漲停/跌停），確保新股有顏色基準和漲跌停判斷
+- **盤中新增個股參考價更新**: 60 秒重訂週期新增每 300 秒定期呼叫 `ReadWatchListAll_api()`（不限於 mtime 變更時），確保新股和現有股票的參考價持續更新
+
+### Changed
+- `YuantaAPI_Pythonnet.py`: `_norm()` ×4 改用 `round(x/10000.0, 2)` + 門檻 `>= 10000`；`_write_snapshots()` cum_vol 改用 in+out；WatchlistAll byTemp 29 值 ×1000；`.api_active` 移到登入後建立；新增 `last_ref_price_time` 定期刷新參考價
+- `web_dashboard.py`: `read_snapshot()` 財務數據存取從 `fin["stocks"][stock_id]` 改為 `fin[stock_id]`
+- `run.py`: 新增 CSV 產出驗證（`.api_active` 出現後 20s 內確認 CSV mtime）；`_normalize_price()` 已使用 2 位小數（v2.1 已修正）
+- `stock_ref.json`: 新增 2354（鴻準）、9907（統一實）參考價
+
 ## [2026-06-08] — 啟動穩定性 + 資料一致性修復
 
 ### Fixed

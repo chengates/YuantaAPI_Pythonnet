@@ -80,16 +80,18 @@ python sim_run.py #模擬器,非開盤日
 
 ## 7. 已知問題/代辦 list（Agent 可優先修）
 
-## todo: 6/8
+## todo: 6/9
 
-- run.py 啟動時,畫面顯示api已啟動,實際沒有運作,csv沒產出,後來手動開啟
-- pe/pb/peg光有label無顯示值,看起來analyst_eps.json,沒有根據watchlist生成,這中間需要設計工具來生成analyst_eps.json,或是dashboard直接根據watchlist去抓取資料,agent在思考時,我有看到你有提到彼此關係,但實作卻沒落實,這表示你有失憶的問題,你需要落實check point,這樣才不會一直繞圈
-- 9:51:2330估量增約99% dashboard<40 直到9:53估量增約100%dashboard38.9瞬間90%一下子又回到38%
-- 9:56:2317估量增約50%+/-1% dashboard70%-80.9%
-- 看起來盤中預估量的計算有改善空間,為何會有兩個不同結果,是因為memory沒有把這個問題點記起來,所以又繞回去改了同一個地方,又出現了同樣的問題? 這表示memory沒有學習到這個問題點,所以才會一直繞圈,這也是為什麼我說你有失憶的問題,你需要把這些重複出現的問題點記起來,並且記住解決方案,我有確認pct_of_yesterday_avg是正確的
-- 個股右上角的成交總額/總量會慢慢消失,一檔檔變成x,如error\index.html,也可以看盤後index.html可以確定沒斷線,因其他欄位有在更新,但接近13:00 2330的預估量%誤差還是大13:15(盤中預估量42736這裡增加的值不應該)量縮1.9%,因已>昨日量及5日均量
-- 盤中新增各股,dashboard僅呈現等待資料,無csv,估計沒有通知api,沒有使用工具fetch_daily_close.py,請將工具的設計系統化,回復完成修改項目時,務必已通過測試與驗證清單,並且已經確認目標資料正確產出,避免上下文失憶問題
-- 漲跌停判斷：不再依賴 stock_ref.json 的過期 API 值，改以昨收價 ×1.10/0.90 直接計算,是否考慮到除權息,增減資,分割等因素,這些因素會影響昨收價,如果不考慮這些因素,可能會導致漲跌停判斷錯誤,建議在計算昨收價時,考慮這些因素,或者在 stock_ref.json 中加入調整後的昨收價
+- ✅ run.py 啟動時,畫面顯示api已啟動,YuantaAPI_Pythonnet.py實際沒有運作 → v2.2: .api_active 移到登入成功後才建立，run.py 加入 CSV 產出二次驗證
+- ✅ pe/pb/peg一樣光有label無顯示值 → v2.2: `read_snapshot()` 財務數據存取從 `fin["stocks"][stock_id]` 改為 `fin[stock_id]`（_load_financials() 回傳 flat dict 但被當成 nested dict 存取）
+- ⚠️ 9:49 2330估量已改進,但仍有誤差 → v2.2: WatchlistAll byTemp 29 total_in/out/vol 已 ×1000（張→股），累積量正確性提升，預估量計算應更準確，但實際驗證需觀察今日盤中
+- ⚠️ 9:55:2317估量縮22%,實際約39% → 同上，累積量修正後應改善，待盤中驗證
+- ⚠️ 盤中預估量計算仍有改善空間 → 核心公式未改（曲線70%+速率30%），因實際總量/比率仍不完整，待累積量修正後再觀察
+- ✅ 個股右上角的成交總額/總量會全部變成x → v2.2: cum_vol 改用 total_in+total_out（股），cum_deal_amount改用 cum_vol×close_price
+- ✅ 盤中新增各股9907,dashboard,成交價不會更新 → v2.2: stock_ref.json 補齊 2354/9907，定期 300s 呼叫 ReadWatchListAll 取得參考價，60s 重訂含新股
+- ⚠️ 漲跌停判斷：6412 -10.11% → v2.2: 定期刷新參考價機制改善；若仍發生表示 stock_ref.json 昨收價過期，需執行 fetch_daily_close.py
+- ✅ 2356一值維持70元與實際不符 → v2.2: _norm() 四份拷貝改 `round(p/10000.0, 2)`，保留小數精度
+- ⚠️ 百元內個股小數點價位處理（權證低於0.5元跳動0.01元）→ 門檻已改 `>=10000` 涵蓋≥1元股票；<1元極低價股仍需個別處理
 
 error\error.log
 
@@ -141,6 +143,7 @@ error\error.log
 | 1.9 | 2026-06-04 | 價格單位統一：`build_save_record()._norm()` 將所有價格正規化為「元」（整數），消除 5 秒 CSV raw/normalized 混雜；`_save_stock_ref_json()` 英文欄位統一為中文；`_write_daily_summary()` total_in/out 改用 state 累積值；`fetch_daily_close.py` 保留既有 total_in/total_out；預估量改分段時間權重曲線 + 動態投影（actual_cum/progress）；昨均% 改增/縮顯示；`_intraday_volume_progress` 移至 class 外部修復類別中斷；專案架構獨立為 `CODE_MAP.md` |
 | 2.0 | 2026-06-05 | **Dashboard 全面升級**: 0.5s snapshot 系統（469x 加速）、漲跌停計算修復、全部價量紀錄三 bug、自選股 UI 增刪改查、連線狀態監控（SSE dot + 滯後警告 + 卡片紅框）。**資料工具**: fetch_daily_close.py 日期偵測修復（不再標記錯誤日期）、@stockID.csv/yesterday/stock_ref.json 全修復、resample_1min.py（5 秒→1 分 K）、update_market_cap.py（TWSE/TPEx 市值排名+PE/PB）、update_financials.py（近四季 EPS+PEG）、fetch_analyst_eps.py（法人預估聚合+trimmed mean+動態 PEG）。**避險**: hedge_dashboard.py（期現貨基差+理論價+動態門檻+大戶動向+個股期）。**啟動**: run.py v2（API subprocess + 盤前檢查 + PEG 更新）。**預估量**: v2 速率加權（固定曲線×0.7 + 5分鐘速率×0.3） |
 | 2.1 | 2026-06-08 | **啟動穩定性修復**: run.py API subprocess stdout 阻塞（加入 reader thread + .api_active 驗證 30s timeout）、snapshot 原子寫入（tmp→replace 避免半寫入）、成交總額/總量改累積值、漲跌停優先 API 值、盤中新增個股自動重訂、PE/PB/PEG 涵蓋全部自選股、昨日量載入編碼修正。詳見 CHANGELOG.md |
+| 2.2 | 2026-06-09 | **價格精度+累積量單位+PE/PB/PEG修復**: _norm() 四份拷貝改 `round(x/10000.0, 2)` 保留小數（修復百元內股票如 2356 整數化）；cum_vol 改用 in+out（修復成交總額/總量變 x）；WatchlistAll byTemp 29 值 ×1000（張→股）；`read_snapshot()` 財務數據存取修正（flat dict vs nested）；run.py 加入 CSV 產出二次驗證；stock_ref.json 補齊 2354/9907；定期 300s 刷新參考價。詳見 CHANGELOG.md |
 
 ## 請agent 協助確認獨立生成 code map ,代補充 *.json , 其他有效*.py
 
@@ -152,3 +155,44 @@ repair_daily_summary.py — 從 5 秒 CSV 重建日總結檔，修正格式不�
 Web Dashboard: `web_dashboard.py` — Flask + SSE 即時多股監控畫面
 run.py 防止雙開,startup api/Dashboard 開盤日
 sim_run.py 防止雙開,startup api/Dashboard 非開盤時,增加資料模擬器
+
+---
+
+## 12. 2026-06-09 教訓 — 兩大隱形殺手
+
+### 12.1 Python `.pyc` 快取毒害
+
+**現象**：修改 `.py` 原始碼後重啟，`curl` 確認 HTML 正確，但瀏覽器仍顯示舊版。三個瀏覽器+無痕+Ctrl+Shift+R 全部無效。
+
+**根因**：Python 直譯器優先載入 `__pycache__/*.pyc`。原始碼被編輯但 `.pyc` 未清除 → 直譯器執行舊版程式碼。`curl` 測試走 HTTP 層，看到的是 Flask 渲染結果；但實際執行的模組是舊版。
+
+**強制規則**：
+```
+每次修改 .py 後 → rm -rf __pycache__/ → 重啟程序
+啟動命令固定使用 python -B run.py（禁止寫入 .pyc）
+加入版本標記（如 <title>v2.2-0609</title>）快速確認
+```
+
+### 12.2 CSS 超長單行被瀏覽器截斷
+
+**現象**：`stat-row` div 在 HTML 中存在、資料正確，但成交總額/總量行不可見（高度為 0）。
+
+**根因**：`.stat-row`、`.stale`、`.status-dot`、`.status-dot.live`、`.status-dot.stale`、`.status-dot.dead` 全部擠在一行（~500 字元）。瀏覽器 CSS 解析器截斷此超長行，最前面的 `.stat-row{...}` 被犧牲 → `display:flex` 從未套用。
+
+**強制規則**：
+```
+每個 CSS class 獨立成行
+關鍵 class 放在 style 區塊最前面（第 2-3 行）
+修改後用瀏覽器 DevTools → Computed tab 確認 CSS rule 被套用
+```
+
+### 12.3 修改完整性檢查
+
+**現象**：宣稱「已修復」但實際只修了部分（修 A 漏 B/C/D）。
+
+**強制規則**：
+1. `_norm()` 等函數有**四份獨立拷貝** — 任何修改必須四處同步
+2. 修改資料回傳格式時，**搜尋所有呼叫方**確認存取路徑一致
+3. 端到端驗證：API → state → snapshot → `read_snapshot()` → SSE → 前端 JS → 瀏覽器渲染
+4. 單位鏈追溯：每個環節確認元/股 vs 張/千元
+5. 修改後用 sub-agent 獨立驗證（避免自己改自己驗的盲點）
