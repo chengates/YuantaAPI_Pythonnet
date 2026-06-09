@@ -1,0 +1,173 @@
+{
+  "updated": "2026-06-09T13:52:44.762934",
+  "stocks": {
+    "2330": {
+      "name": "台積電",
+      "consensus_eps": 86,
+      "method": "manual_override",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 86,
+        "trailing_eps": 59.26,
+        "forward_pe": 27.73,
+        "eps_growth_pct": 45.1,
+        "peg": 0.61
+      },
+      "manual_eps": 86
+    },
+    "2317": {
+      "name": "鴻海",
+      "consensus_eps": 15.5,
+      "method": "manual_override",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 15.5,
+        "trailing_eps": 12.379999999999999,
+        "forward_pe": 18.9,
+        "eps_growth_pct": 25.2,
+        "peg": 0.75
+      },
+      "manual_eps": 15.5
+    },
+    "2344": {
+      "name": "華邦電",
+      "consensus_eps": 1.6,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 1.6,
+        "trailing_eps": 1.6,
+        "forward_pe": 112.19,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "2610": {
+      "name": "華航",
+      "consensus_eps": 1.09,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 1.09,
+        "trailing_eps": 1.09,
+        "forward_pe": 18.26,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "2609": {
+      "name": "陽明",
+      "consensus_eps": 5.25,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 5.25,
+        "trailing_eps": 5.25,
+        "forward_pe": 10.13,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "6123": {
+      "name": "上奇",
+      "consensus_eps": 0.9500000000000001,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 0.9500000000000001,
+        "trailing_eps": 0.9500000000000001,
+        "forward_pe": 49.16,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "8936": {
+      "name": "國統",
+      "consensus_eps": 1.87,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 1.87,
+        "trailing_eps": 1.87,
+        "forward_pe": 33.58,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "6122": {
+      "name": "擎邦",
+      "consensus_eps": 0.65,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 0.65,
+        "trailing_eps": 0.65,
+        "forward_pe": 74.77,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "2356": {
+      "name": "英業達",
+      "consensus_eps": 3.6,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 3.6,
+        "trailing_eps": 3.6,
+        "forward_pe": 21.61,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "6412": {
+      "name": "群電",
+      "consensus_eps": 20.0,
+      "method": "trailing_4q_fallback",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": {
+        "forward_eps": 20.0,
+        "trailing_eps": 20.0,
+        "forward_pe": 5.15,
+        "eps_growth_pct": 0.0,
+        "peg": null
+      },
+      "manual_eps": null
+    },
+    "2354": {
+      "name": "鴻準",
+      "consensus_eps": null,
+      "method": "median",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": null,
+      "manual_eps": null
+    },
+    "9907": {
+      "name": "統一實",
+      "consensus_eps": null,
+      "method": "median",
+      "all_estimates": [],
+      "source_count": 0,
+      "peg": null,
+      "manual_eps": null
+    }
+  }
+}
