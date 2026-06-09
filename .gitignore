@@ -23,6 +23,7 @@ build/
 stock_ref.json
 .api_active
 .dashboard_pid
+snapshot/
 
 # Credentials
 accountEnv.json
