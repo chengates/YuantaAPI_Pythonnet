@@ -30,8 +30,35 @@ def load_watchlist_stocks():
 
 # ---- TWSE 上市 (OpenAPI) ----
 
+def _detect_twse_data_date(ref_code="2330"):
+    """比對 OpenAPI 與 STOCK_DAY 網站 API，偵測 OpenAPI 回傳的實際日期。
+    STOCK_DAY_ALL 不回傳日期欄位，且可能回傳前一交易日資料（當日尚未發布）。
+    回傳格式: 'YYYYMMDD'，失敗回傳 None。"""
+    url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={datetime.now().strftime('%Y%m%d')}&stockNo={ref_code}"
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urlopen(req, timeout=15, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    if data.get("stat") != "OK" or not data.get("data"):
+        return None
+    # 最後一筆為最近交易日，第一欄為 ROC 日期 (115/MM/DD)
+    last_row = data["data"][-1]
+    roc_date = last_row[0].strip()  # e.g. "115/06/05"
+    parts = roc_date.split("/")
+    if len(parts) != 3:
+        return None
+    year = int(parts[0]) + 1911
+    return f"{year}{parts[1]}{parts[2]}"
+
+
 def fetch_twse_daily():
-    """TWSE OpenAPI: 最近交易日全體上市股票日數據"""
+    """TWSE OpenAPI: 最近交易日全體上市股票日數據。
+    回傳 (data_dict, actual_date_str)，actual_date_str 為 YYYYMMDD 格式。"""
     url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
     print("[TWSE] 查詢 (openapi) ...")
     ctx = ssl.create_default_context()
@@ -43,7 +70,7 @@ def fetch_twse_daily():
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"[TWSE] 查詢失敗: {e}")
-        return {}
+        return {}, None
 
     result = {}
     for item in data:
@@ -62,17 +89,56 @@ def fetch_twse_daily():
             }
         except (ValueError, TypeError):
             continue
-    print(f"[TWSE] 取得 {len(result)} 筆")
-    return result
+
+    # 偵測資料實際日期（OpenAPI 不回傳日期，需比對）
+    actual_date = _detect_twse_data_date()
+    if actual_date:
+        print(f"[TWSE] 取得 {len(result)} 筆，實際日期={actual_date}")
+    else:
+        print(f"[TWSE] 取得 {len(result)} 筆，日期偵測失敗")
+    return result, actual_date
 
 
 # ---- TPEx 上櫃 (OpenAPI) ----
 
-def fetch_tpex_daily():
-    """TPEx: 最近交易日全體上櫃股票日數據"""
-    from datetime import datetime
+def _detect_tpex_data_date():
+    """從 TPEx API 表格標題偵測實際資料日期。
+    TPEx API 可能回傳前一日資料（當日尚未發布），需從回應中提取日期。
+    回傳格式: 'YYYYMMDD'，失敗回傳 None。"""
+    # 嘗試多個日期 (今天/昨天) 查詢，比對回傳資料判斷
     now = datetime.now()
-    roc_date = f"{now.year - 1911}/{now.month:02d}/{now.day:02d}"
+    for days_back in [0, 1, 2]:
+        d = now.replace(day=now.day - days_back) if days_back > 0 else now
+        roc_date = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+        url = f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?d={roc_date}&response=json"
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with urlopen(req, timeout=15, context=ctx) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            continue
+        if data.get("stat") == "ok" and data.get("tables"):
+            # 有資料表示此日期已發布
+            return f"{d.year}{d.month:02d}{d.day:02d}"
+    return None
+
+
+def fetch_tpex_daily():
+    """TPEx: 最近交易日全體上櫃股票日數據。
+    回傳 (data_dict, actual_date_str)。"""
+    # 先偵測最新可用日期
+    actual_date = _detect_tpex_data_date()
+    if actual_date:
+        d = datetime.strptime(actual_date, "%Y%m%d")
+        roc_date = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+    else:
+        now = datetime.now()
+        roc_date = f"{now.year - 1911}/{now.month:02d}/{now.day:02d}"
+        actual_date = now.strftime("%Y%m%d")
+
     url = f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?d={roc_date}&response=json"
     print(f"[TPEx] 查詢 {roc_date} ...")
     ctx = ssl.create_default_context()
@@ -84,17 +150,17 @@ def fetch_tpex_daily():
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"[TPEx] 查詢失敗: {e}")
-        return {}
+        return {}, None
 
     if data.get("stat") != "ok":
         print(f"[TPEx] API stat={data.get('stat')}")
-        return {}
+        return {}, None
 
     result = {}
     # 第一個 table 是股票報價，第二個是特別處理
     tables = data.get("tables", [])
     if not tables:
-        return {}
+        return {}, None
     # fields: 代號, 名稱, 收盤, 漲跌, 開盤, 最高, 最低, 均價, 成交股數, 成交金額(元), 成交筆數, ...
     for row in tables[0].get("data", []):
         try:
@@ -115,8 +181,8 @@ def fetch_tpex_daily():
             }
         except (ValueError, IndexError):
             continue
-    print(f"[TPEx] 取得 {len(result)} 筆")
-    return result
+    print(f"[TPEx] 取得 {len(result)} 筆，實際日期={actual_date}")
+    return result, actual_date
 
 
 # ---- 收盤比對 ----
@@ -284,7 +350,7 @@ def write_daily_summary(stock_id, date_str, info):
 
 
 def update_stock_ref(results):
-    """更新 stock_ref.json"""
+    """更新 stock_ref.json（含昨收價、漲跌停價、昨量）。"""
     ref = {}
     if os.path.exists("stock_ref.json"):
         try:
@@ -294,9 +360,13 @@ def update_stock_ref(results):
             pass
 
     for code, info in results.items():
+        close = info["close"]
         ref[code] = ref.get(code, {})
-        ref[code]["yst_price"] = int(info["close"] * 10000)
+        ref[code]["yst_price"] = int(close * 10000)
         ref[code]["yst_vol"] = info["vol"]
+        # 同時寫入漲跌停價（±10%，raw 格式 ×10000）
+        ref[code]["up_price"] = int(round(close * 1.10, 2) * 10000)
+        ref[code]["down_price"] = int(round(close * 0.90, 2) * 10000)
 
     with open("stock_ref.json", "w", encoding="utf-8") as f:
         json.dump(ref, f, ensure_ascii=False, indent=2)
@@ -304,13 +374,15 @@ def update_stock_ref(results):
 
 
 def update_yesterday(stock_id, date_str, info):
-    """寫入 yesterday/ 備份"""
+    """寫入 yesterday/ 備份（日期格式 YYYY-MM-DD）"""
     os.makedirs("yesterday", exist_ok=True)
     ypath = f"yesterday/{stock_id}.csv"
+    # 轉換日期格式: YYYYMMDD → YYYY-MM-DD
+    date_formatted = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
     with open(ypath, "w", encoding="utf-8") as f:
         f.write("日期,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數\n")
         price_diff = round(info["close"] - info["open"], 2)
-        f.write(f"{date_str},{info['vol']},{info['amount']},{info['open']},{info['high']},{info['low']},{info['close']},{price_diff},{info['trades']}\n")
+        f.write(f"{date_formatted},{info['vol']},{info['amount']},{info['open']},{info['high']},{info['low']},{info['close']},{price_diff},{info['trades']}\n")
 
 
 # ---- 主流程 ----
@@ -321,36 +393,48 @@ def main():
     parser.add_argument("--stocks", default=None, help="股票代碼逗號分隔 (預設: watchlist.json)")
     parser.add_argument("--no-tpex", action="store_true", help="跳過 TPEx")
     parser.add_argument("--compare-only", action="store_true", help="僅比對不寫入")
+    parser.add_argument("--date", default=None, help="指定日期 YYYYMMDD (預設: 自動偵測)")
     args = parser.parse_args()
 
     stocks = args.stocks.split(",") if args.stocks else load_watchlist_stocks()
     print(f"目標股票: {stocks}")
 
-    twse_data = fetch_twse_daily()
+    twse_data, twse_date = fetch_twse_daily()
     time.sleep(1)
-    tpex_data = {} if args.no_tpex else fetch_tpex_daily()
+    tpex_data, tpex_date = ({} if args.no_tpex else fetch_tpex_daily())
+
+    # 決定寫入日期：優先使用 --date，否則使用 API 偵測到的日期
+    if args.date:
+        target_date = args.date
+        print(f"使用指定日期: {target_date}")
+    else:
+        # 取 TWSE/TPEx 日期中較晚者（通常 TWSE 較快發布）
+        dates = [d for d in [twse_date, tpex_date] if d]
+        target_date = max(dates) if dates else datetime.now().strftime("%Y%m%d")
+        today_str = datetime.now().strftime("%Y%m%d")
+        if target_date != today_str:
+            print(f"⚠ 官方數據最新日期={target_date}，非今日({today_str})。將寫入 {target_date} 的資料。")
+        else:
+            print(f"數據日期={target_date}（今日）")
 
     all_data = {**twse_data, **tpex_data}
     if not all_data:
         print("未取得任何資料，請稍後再試（當日數據約 15:00 後發布）")
         return
 
-    # 使用最近一筆資料的日期
-    today_str = datetime.now().strftime("%Y%m%d")
-
     if args.compare_only:
         print("--compare-only 模式：僅比對不寫入\n")
-        issues = print_comparison(stocks, today_str, all_data)
+        print_comparison(stocks, target_date, all_data)
         return
 
-    print(f"\n寫入 @stockID.csv 與 yesterday/:")
+    print(f"\n寫入 @stockID.csv 與 yesterday/ (日期={target_date}):")
     written = 0
     results = {}
     for sid in stocks:
         if sid in all_data:
             info = all_data[sid]
-            write_daily_summary(sid, today_str, info)
-            update_yesterday(sid, today_str, info)
+            write_daily_summary(sid, target_date, info)
+            update_yesterday(sid, target_date, info)
             results[sid] = info
             written += 1
         else:
@@ -362,7 +446,7 @@ def main():
     print(f"\n完成: {written}/{len(stocks)} 筆")
 
     # 收盤比對
-    print_comparison(stocks, today_str, all_data)
+    print_comparison(stocks, target_date, all_data)
 
 
 if __name__ == "__main__":

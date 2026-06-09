@@ -1,4 +1,28 @@
 ** （Agent 可優先修） **
+## ✅ 2026-06-05 已完成 (agent: Claude Opus 4.7)
+
+| 優先 | 問題 | 狀態 |
+|------|------|------|
+| — | 盤中預估量 | ✅ v2: 速率加權（固定曲線×0.7 + 5分鐘速率×0.3）+ total_volume 備援 |
+| tool | 盤中負值 + 盤後自動校驗 | ✅ fetch_daily_close.py 日期偵測修復 + @stockID.csv/yesterday/stock_ref.json 全修復 |
+| BUG | 6122/6123/8936 量價 /1000 誤差 | ✅ fetch_daily_close.py 不再錯誤覆蓋；資料已用 TWSE STOCK_DAY API 還原 |
+| csv | 1分K 轉換工具 | ✅ resample_1min.py: 5秒→1分 OHLCV, 271根/日, 對齊 cStock |
+| BUG | web_dashboard 漲跌停燈號 | ✅ _get_limit_prices() 改用 昨收×1.10/0.90 計算 |
+| BUG | 價格顏色/昨收基準 | ✅ stock_ref.json yst_price 修正 + _get_ref_price() 三層降級 |
+| UI | 全部價量紀錄 (負值/收合/盤後) | ✅ vol() + Math.max + recsOpen 嵌入 + 盤後 CSV fallback |
+| UI | 自選股 UI 增刪改查 | ✅ POST /api/watchlist/add/remove + GET /api/stock/search + 前端搜尋列 |
+| 市值 | 大型/中型/小型定義 + per/pbr/peg | ✅ update_market_cap.py + market_cap.json + PE/PB/PEG 顯示 |
+| tool | Dashboard 0.5s 更新 | ✅ snapshot/*.json (469x 加速) + poll_worker 0.5s |
+| 啟動 | run.py API 啟動 + 雙開 + 盤前檢查 | ✅ run.py v2: API subprocess + preflight + PEG 更新 |
+| 連線 | Dashboard 連線監控 + 斷線偵測 | ✅ SSE dot (綠/紅/灰) + 滯後警告 + 卡片紅框 |
+| 避險 | 期貨/選擇權避險儀表板 | ✅ hedge_dashboard.py: TXF基差+理論價+動態門檻+大戶動向+個股期 |
+
+### 未完成（移至下一版）
+- 個股期/期貨/Put-Call 獨立頁面完整規劃（Phase 2-4 待確認後實作）
+- 市值排名自動化排程（需確認 TAIFEX/TWSE API 穩定性）
+- 法人預估 EPS 自動爬取（目前手動填入 analyst_eps.json）
+
+---
 
 | 優先 | 問題 | 位置 | 狀態 |
 |------|------|------|------|已知問題,修改後務必紀錄於 CHANGELOG.md, github 前務必更新 agend.md 修訂紀錄
@@ -88,3 +112,11 @@ Agent (Claude Opus 4.7 via Claude Code) 無法讀取 PNG 截圖 (error/總量err
 2. OHLC 偏低: 缺早盤高點和收盤拍賣
 3. 預估量: 2317 估縮30% 實際+2.4%; 2330 估縮12% 實際+30%(方向錯誤)
 4. 昨日基準不準 + API 不穩是兩大問題
+
+6/5 即時啟動 9:00 後觀察dashboard , 的問題壯況,如圖 0605開盤,期間鴻海跌停開開關關,不應該 ,2356跌停鎖住,不應該, 其他個股報價誤差可能延遲,第一筆報價api 盡可能不受5秒延遲,同樣道理>=13:00:00時也不受5秒延遲,報價顏色沒有規律有些不的不正確,如圖,希望ageng可以利用vsCode 看到圖;10:20,2536實際觀察預估量增目視>50%,DASHBOARD跌停當然已打開,但實際應該已翻紅,DASHBOARD還是綠色
+1.本次啟動沒有執行 fetch_daily_close.py ,因我認為昨天,有監控跨過盤後時間,應該不須,但結果顏色不對,事前,沒有檢查csv值,是否都正正確,建議完善 fetch_daily_close.py 例如有時第一次訪問,可能該 server sleep ,可換備選其他資訊站 ,假如同樣情況,相信備選資訊站倫一圈後,其他資訊站,應該已被叫醒
+2. 這經驗觸發我一個簡化啟動流程, Agent 設法判斷csv 與 資訊站取得的值,比較是否誤差,若存在誤差是否可讓apI強迫取得一筆資料或你想其他方法確定CSV的真實性
+3. 我假設可用的方法是觸發器,或整合在RUN.PY裡,另外為簡化啟動流程,請將API的啟動也加入RUN裡,要檢查避免雙開
+4. DASHBOARD 改進效能,目前是由5秒APPNED的大檔案更新,建議能多一筆個別更新給DASHOARD專用的CSV,資料是用UPDATE的方式,時間0.5秒,或AGENT有更好的方法
+5. 大約9:15 2344進入跌停過程開開關關,但DASHBOARD完全沒亮燈,前幾天我們就有漲停該亮燈,沒亮,不該亮燈卻亮燈,那時就提到跌停可能也會有相同問題,果然這部分要查清楚,預估量也是,不管正或負都有必要加大,例如10:50時我看2609明顯>50%但我們預估僅32%,同一個時間2344量增約20%,但DASHBOARD僅為11%,2330約45%DASHBOARD6%,2317約0%DASHBOARD縮20.6%
+6. 斷線的問題,如果1:30以前server ,不管@股號.csv 或 yerter\的csv都會錯過?,應設法恢復資料,前端5秒csv都有收到1:30的結束csv,localhost<->前端的問題參考,0505 150可見前端1040-1101斷線截圖,建議1可以設計並看到連線數,可以在連線數發生下降時,排除人為因素,有重連復原機制,或有更佳feedback發法,另一個問題點,csv有1:30後的資料,但@csv沒有yesterday也呒,我等2:30後在總結,而dashboard已知斷線,所以ohlc價量,看的到的資料,也沒有參考意義了
