@@ -13,6 +13,12 @@ from option_pricing import OptionPricing, put_call_ratio_analysis
 import hedge_dashboard
 
 app = Flask(__name__)
+@app.after_request
+def _no_cache(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 hedge_dashboard.register(app)
 sse_queue = queue.Queue()
 
@@ -48,10 +54,11 @@ HTML = r"""<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Yuanta OneAPI 即時監控</title>
+<title>v2.2-0609 • Yuanta OneAPI 即時監控</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1117;color:#c9d1d9;font-family:'Microsoft YaHei',sans-serif;padding:16px}
+	.stat-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px;color:#8b949e;border-top:1px solid #21262d;padding-top:4px}
 h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .wl-select{padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:13px}
@@ -91,12 +98,12 @@ h1{font-size:20px;margin-bottom:12px;color:#58a6ff}
 .depth-table th{color:#8b949e;font-weight:normal;text-align:right;padding:1px 4px}
 .depth-table td{text-align:right;padding:1px 4px;font-variant-numeric:tabular-nums}
 .depth-table .bid{color:#3fb950}.depth-table .ask{color:#f85149}
-.stat-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px;color:#8b949e;border-top:1px solid #21262d;padding-top:4px}.stale{color:#f85149}.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.status-dot.live{background:#3fb950;box-shadow:0 0 6px #3fb950}.status-dot.stale{background:#f85149;box-shadow:0 0 6px #f85149}.status-dot.dead{background:#6e7681}
+.stale{color:#f85149}.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.status-dot.live{background:#3fb950;box-shadow:0 0 6px #3fb950}.status-dot.stale{background:#f85149;box-shadow:0 0 6px #f85149}.status-dot.dead{background:#6e7681}
 </style>
 </head>
 <body>
 <div class="header">
-<h1>Yuanta OneAPI — 即時監控 <a href="/hedge" style="font-size:13px;color:#d2991d;text-decoration:none;margin-left:12px">避險</a></h1>
+<h1>v2.2-0609 Yuanta OneAPI — 即時監控 <a href="/hedge" style="font-size:13px;color:#d2991d;text-decoration:none;margin-left:12px">避險</a></h1>
 <div style="display:flex;gap:8px;align-items:center">
 <select class="wl-select" id="wlSelect" onchange="switchWatchlist(this.value)"></select>
 <input id="stockSearch" placeholder="搜尋代號或名稱..." style="padding:6px 8px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:12px;width:160px" onkeyup="if(event.key==='Enter')addStock()">
@@ -134,7 +141,7 @@ async function switchWatchlist(name){
 }
 loadWatchlists();
 function fmt(n,d=2){if(n==null)return'--';return Number(n).toFixed(d);}
-function vol(n){return n!=null && n>=0?Math.round(n/1000).toLocaleString():'--'}
+function vol(n){if(n==null||n<0)return'--';return String(Math.round(n/1000)).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
 function badge(type){
   const m={large_cap:['大型','type-large'],mid_cap:['中型','type-mid'],
             small_cap:['小型','type-small'],speculative:['投機','type-spec']};
@@ -175,7 +182,7 @@ function cardHTML(s){
   return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span> <span>${badge(s.stock_type)}</span><button onclick="removeStock('${s.stock_id}')" title="移除" style="float:right;background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:0 4px">×</button></h2>
 <div class="price ${cls}${limitCls}">${fmt(s.close_price)} ${limitLabel} <span style="font-size:13px">${chgPct>0?'+'+chgPct:chgPct}%</span></div>
 <div class="row"><span>開 ${fmt(s.open_price)}</span><span>高 ${fmt(s.high_price)}</span><span>低 ${fmt(s.low_price)}</span></div>
-<div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${(s.trade_count||0).toLocaleString()}</span></div>
+<div class="row"><span>量 ${vol(dealVol)} 張</span><span>成交筆數 ${String(s.trade_count||0).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span></div>
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
 <div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">${s.pct_of_yesterday_avg!=null?(s.pct_of_yesterday_avg>=0?'增':'縮')+Math.abs(s.pct_of_yesterday_avg).toFixed(1)+'%':'--'}</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
@@ -217,7 +224,7 @@ function summary(data){
   if(!bar._built){bar.innerHTML='<div class="summary-item"><span class="s-cnt"></span> <span class="s-updn"></span></div><div class="summary-item">總量 <span class="num s-tvol"></span></div><div class="summary-item">內盤佔比 <span class="num s-inpct"></span></div>';bar._built=true;}
   setText(bar.querySelector('.s-cnt'),'監控 '+entries.length+' 檔');
   setText(bar.querySelector('.s-updn'),up+'↑ '+down+'↓');
-  setText(bar.querySelector('.s-tvol'),Math.round(totalVol/1000).toLocaleString()+' 張');
+  setText(bar.querySelector('.s-tvol'),String(Math.round(totalVol/1000)).replace(/\B(?=(\d{3})+(?!\d))/g,',')+' 張');
   const pctEl=bar.querySelector('.s-inpct');setText(pctEl,inPct+'%');
   pctEl.style.color=inPct>55?'#3fb950':inPct<45?'#f85149':'#c9d1d9';
 }
@@ -338,8 +345,8 @@ def read_snapshot(stock_id: str) -> dict | None:
         }
         # 載入財務數據
         fin = _load_financials()
-        if fin and stock_id in fin.get("stocks", {}):
-            fs = fin["stocks"][stock_id]
+        if fin and stock_id in fin:
+            fs = fin[stock_id]
             d["pe"] = fs.get("pe")
             d["pb"] = fs.get("pb")
             d["peg"] = fs.get("peg")

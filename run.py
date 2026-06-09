@@ -24,6 +24,15 @@ import threading
 import time
 from datetime import datetime, date
 
+# 確保 console 輸出使用 UTF-8（避免 emoji 等字元在 cp950 環境下報錯）
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    try:
+        sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', errors='replace', closefd=False)
+    except Exception:
+        pass
+
 import web_dashboard
 
 PID_FILE = ".dashboard_pid"
@@ -366,7 +375,7 @@ def main():
         print("[RUN] 啟動 YuantaAPI_Pythonnet.py ...")
         try:
             api_proc = subprocess.Popen(
-                [sys.executable, "YuantaAPI_Pythonnet.py"],
+                [sys.executable, "-B", "YuantaAPI_Pythonnet.py"],
                 cwd=os.path.dirname(os.path.abspath(__file__)),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace"
@@ -397,7 +406,7 @@ def main():
                 if api_proc.poll() is not None:
                     print(f"[RUN] ⚠ API 子程序已退出 (returncode={api_proc.returncode})")
                     break
-                # 檢查 .api_active 旗標（API show() 啟動後會建立）
+                # 檢查 .api_active 旗標（登入成功後 show() 才會建立）
                 if os.path.exists(api_flag_path):
                     api_ready = True
                     print(f"[RUN] ✅ API 初始化完成（.api_active 已出現）")
@@ -406,7 +415,27 @@ def main():
                 print(f"[RUN] ⚠ API 初始化逾時 (30s)，將繼續啟動 dashboard")
                 print(f"[RUN]    若 CSV 無產出，請手動執行 YuantaAPI_Pythonnet.py")
 
-            if not api_ready:
+            if api_ready:
+                # 二次驗證：等待 CSV 實際產出
+                csv_check_timeout = 10
+                csv_confirmed = False
+                for _ in range(csv_check_timeout):
+                    time.sleep(1)
+                    # 檢查任一主要股票的 CSV 是否有寫入（mtime > 30 秒內）
+                    for test_id in ["2330", "2317"]:
+                        csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{test_id}.csv")
+                        if os.path.exists(csv_path):
+                            csv_age = time.time() - os.path.getmtime(csv_path)
+                            if csv_age < 30:
+                                csv_confirmed = True
+                                break
+                    if csv_confirmed:
+                        print(f"[RUN] ✅ CSV 資料流已確認（{test_id}.csv 持續更新）")
+                        break
+                if not csv_confirmed:
+                    print(f"[RUN] ⚠ 逾時等待 CSV 產出 ({csv_check_timeout}s)，可能訂閱無資料")
+                    print(f"[RUN]    請檢查帳號登入狀態及網路連線")
+            else:
                 # 再等 2 秒給登入回應
                 time.sleep(2)
         except Exception as e:

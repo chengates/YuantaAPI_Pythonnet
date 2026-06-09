@@ -459,7 +459,7 @@ class StockQuoteState:
             for col in ["收盤價", "close_price"]:
                 if col in df.columns:
                     raw = float(df[col].iloc[-1])
-                    self.yesterday_close = raw / 10000.0 if abs(raw) > 100000 else raw
+                    self.yesterday_close = round(raw / 10000.0, 2) if abs(raw) >= 10000 else round(raw, 2)
                     break
         except Exception:
             pass
@@ -554,12 +554,13 @@ class StockQuoteState:
         if not self.has_data() and self.close_price is None:
             return None
 
-        # 正規化價格：API 原始值 ×10000，若 >100000 則 /10000 → 元
+        # 正規化價格：API 原始值 ×10000，若 >=10000 則 /10000 → 元（保留 2 位小數）
+        # 門檻 10000 (=1 元等值) 可涵蓋所有 ≥1 元的股票；<1 元極低價股直接保留原值
         def _norm(p):
             if p is None:
                 return None
             p = float(p)
-            return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
+            return round(p / 10000.0, 2) if abs(p) >= 10000 else round(p, 2)
 
         # 計算 5 秒區間量差（累積量的 delta），而非最後一筆 tick 值
         interval_vol = max(0, self.total_volume - self._snap_total_vol)
@@ -2451,10 +2452,10 @@ def SubscribeWatclistAll_Out(abyData):
             total_vol = to_uint32(dataGetter.GetInt())
             total_amt = dataGetter.GetLong()
             state.update_watchlist_all(byTemp, timestamp=timestamp, total_out=total_out, total_in=total_in, deal_price=deal_price, deal_volume=deal_vol)
-            # 使用 API 回傳的累積總量，而非逐筆 tick 累加（tick 每筆僅 1~5 股）
-            state.total_in_volume = total_in
-            state.total_out_volume = total_out
-            state.total_volume = total_vol
+            # 使用 API 回傳的累積總量，值單位為「張」需 ×1000→股
+            state.total_in_volume = total_in * 1000
+            state.total_out_volume = total_out * 1000
+            state.total_volume = total_vol * 1000
             state.extra_data['total_vol'] = total_vol
             state.extra_data['total_amt'] = total_amt
             result += f"WatchlistAll {stock_id} 29: out={total_out}, in={total_in}, deal={deal_price}@{deal_vol}, total_vol={total_vol}, total_amt={total_amt}\r\n"
@@ -3393,12 +3394,12 @@ def _write_daily_summary(stock_id: str, state):
 
     now = dt.datetime.now()
 
-    # 正規化價格：build_save_record() 已輸出「元」，此處 _norm 為安全防護
+    # 正規化價格：build_save_record() 已輸出「元」，此處 _norm 為安全防護（保留 2 位小數）
     def _norm(p):
         if p is None:
             return 0.0
         p = float(p)
-        return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
+        return round(p / 10000.0, 2) if abs(p) >= 10000 else round(p, 2)
 
     open_p = _norm(record.get("open_price"))
     high_p = _norm(record.get("high_price"))
@@ -3472,22 +3473,29 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     API 優先機制: 啟動時建立 .api_active 標記檔，模擬器檢測到後自動暫停。
     """
     API_FLAG = ".api_active"
-    # 建立 API active 標記，通知模擬器暫停
+    if not SUBSCRIPTION_STATE.get('login_status', False):
+        print(f"[{dt.datetime.now()}] show() 登入狀態未確認，跳過執行（不建立 .api_active）")
+        # 清除可能殘留的舊旗標
+        try:
+            if os.path.exists(API_FLAG):
+                os.remove(API_FLAG)
+        except Exception:
+            pass
+        return []
+    # 登入成功後才建立 API active 標記，確保 run.py 不會誤判
     try:
         with open(API_FLAG, "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
         print(f"[{dt.datetime.now()}] .api_active 已建立 (PID {os.getpid()})")
     except Exception as e:
         print(f"[{dt.datetime.now()}] 無法建立 .api_active: {e}")
-    if not SUBSCRIPTION_STATE.get('login_status', False):
-        print(f"[{dt.datetime.now()}] show() 登入狀態未確認，跳過執行")
-        return []
 
     saved_records = []
     last_save_time = time.time()
     last_snapshot_time = time.time()  # Dashboard 快照計時器
     last_subscribe_time = time.time()
     last_watchlist_subscribe_time = time.time()  # WatchlistAll/Stocktick 獨立週期
+    last_ref_price_time = time.time()  # 定期更新 stock_ref.json 參考價（含新股）
     prev_phase = _market_phase()
     global _daily_summary_written
     _csv_frozen = False  # 14:30 後凍結 CSV 寫入
@@ -3575,7 +3583,7 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
             # 每 60 秒重新訂閱全部四種訂閱，防止個股（尤其 OTC）訂閱過期掉線
-            # 同時重新讀取參考價，處理盤中新增股票
+            # 同時定期重新讀取參考價，處理盤中新增股票
             if current_time - last_watchlist_subscribe_time >= 60 and phase in ('trading', 'matching'):
                 if 'objYuantaOneAPI' in globals():
                     # 記錄重訂前的 watchlist.json 修改時間，用於偵測新增
@@ -3585,10 +3593,16 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     SubscribeFiveTick_api(objYuantaOneAPI)
                     SubscribeStocktick_api(objYuantaOneAPI)
                     new_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
-                    if new_mtime > old_mtime:
-                        # watchlist.json 有變更，重新讀取參考價供新股用
-                        print(f"[{dt.datetime.now()}] watchlist.json 有變更，重新讀取參考價")
+                    # 情況 1: watchlist.json 變更 → 立即重讀參考價（供新股用）
+                    # 情況 2: 每 300 秒定期重讀參考價（確保 API 值更新，補漏網之魚）
+                    need_ref = (new_mtime > old_mtime) or (current_time - last_ref_price_time >= 300)
+                    if need_ref:
+                        if new_mtime > old_mtime:
+                            print(f"[{dt.datetime.now()}] watchlist.json 有變更，重新讀取參考價")
+                        else:
+                            print(f"[{dt.datetime.now()}] 定期重新讀取參考價 (300s)")
                         ReadWatchListAll_api(objYuantaOneAPI)
+                        last_ref_price_time = current_time
                     last_watchlist_subscribe_time = current_time
                     print(f"[{dt.datetime.now()}] 週期性重新訂閱全部 (WatchlistAll+Watchlist+FiveTick+Stocktick)")
 
@@ -3734,17 +3748,21 @@ def _write_snapshots():
             if not record:
                 continue
 
-            # 正規化價格輔助
+            # 正規化價格輔助（保留 2 位小數，門檻 >=10000 涵蓋所有 ≥1 元股票）
             def _np(p):
                 if p is None:
                     return None
                 p = float(p)
-                return round(p / 10000.0) if abs(p) > 100000 else round(p, 2)
+                return round(p / 10000.0, 2) if abs(p) >= 10000 else round(p, 2)
 
             # 累積值（供 dashboard 顯示總內外盤量）
             cum_in = max(0, state.total_in_volume if isinstance(state, StockQuoteState) else record.get('cumulative_in_volume', 0) or 0)
             cum_out = max(0, state.total_out_volume if isinstance(state, StockQuoteState) else record.get('cumulative_out_volume', 0) or 0)
-            cum_vol = max(0, state.total_volume if isinstance(state, StockQuoteState) else record.get('cumulative_volume', 0) or 0)
+            # 累積總量：優先使用內外盤合計（兩者均為股），降級用 state.total_volume
+            # state.total_volume 可能來自 WatchlistAll byTemp 29（張, 未×1000）或 StockTick 逐筆累加（少量），不可靠
+            watchlist_cum = cum_in + cum_out
+            state_cum = max(0, state.total_volume if isinstance(state, StockQuoteState) else record.get('cumulative_volume', 0) or 0)
+            cum_vol = max(watchlist_cum, state_cum)
 
             # 更新交易記錄緩衝（5 秒區間 delta）
             interval_in = record.get('total_in_volume', 0) or 0
@@ -3768,13 +3786,14 @@ def _write_snapshots():
                     if len(buf) > 30:
                         _SNAPSHOT_RECORDS[stock_id] = buf[-30:]
 
-            # 累積成交總額：優先使用 API 64-bit total_amt，降級用 cum_vol × close_price 估算
+            # 累積成交總額：優先用 cum_vol × close_price（最可靠），降級 API total_amt
             extra = getattr(state, 'extra_data', {}) or {}
             total_amt_raw = extra.get('total_amt', 0)
-            if total_amt_raw and total_amt_raw > 0:
-                cum_deal_amount = int(total_amt_raw / 10000) if total_amt_raw > 1e12 else int(total_amt_raw)
-            elif cum_vol > 0 and record.get('close_price'):
+            if cum_vol > 0 and record.get('close_price'):
                 cum_deal_amount = int(cum_vol * record['close_price'])
+            elif total_amt_raw and total_amt_raw > 0:
+                # API total_amt 單位不明確（可能是元或特殊格式），作為備援
+                cum_deal_amount = int(total_amt_raw / 10000) if total_amt_raw > 1e12 else int(total_amt_raw)
             else:
                 cum_deal_amount = 0
 
