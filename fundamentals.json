@@ -1,0 +1,109 @@
+{
+  "updated": "2026-06-10",
+  "stocks": {
+    "0062": {
+      "name": "",
+      "eps_ttm": null,
+      "bps": null,
+      "eps_growth_pct": null,
+      "forward_eps": null,
+      "note": "無預估EPS"
+    },
+    "2317": {
+      "name": "鴻海",
+      "eps_ttm": 12.38,
+      "bps": 127.39,
+      "eps_growth_pct": 7.0,
+      "forward_eps": 15.5,
+      "note": "manual_override"
+    },
+    "2330": {
+      "name": "台積電",
+      "eps_ttm": 59.26,
+      "bps": 227.14,
+      "eps_growth_pct": 14.2,
+      "forward_eps": 86,
+      "note": "manual_override"
+    },
+    "2344": {
+      "name": "華邦電",
+      "eps_ttm": 1.6,
+      "bps": 25.9,
+      "eps_growth_pct": 7.8,
+      "forward_eps": 16.96,
+      "note": "manual_override"
+    },
+    "2354": {
+      "name": "鴻準",
+      "eps_ttm": 2.32,
+      "bps": 75.98,
+      "eps_growth_pct": -8.3,
+      "forward_eps": 2.32,
+      "note": "25EPS=2.32 YoY=-8.3% | 待補逐季EPS"
+    },
+    "2356": {
+      "name": "英業達",
+      "eps_ttm": 3.6,
+      "bps": 20.47,
+      "eps_growth_pct": 3.4,
+      "forward_eps": 3.6,
+      "note": "trailing_4q_fallback"
+    },
+    "2609": {
+      "name": "陽明",
+      "eps_ttm": 5.25,
+      "bps": 95.0,
+      "eps_growth_pct": 5.9,
+      "forward_eps": 3.17,
+      "note": "manual_override"
+    },
+    "2610": {
+      "name": "華航",
+      "eps_ttm": 1.09,
+      "bps": 16.86,
+      "eps_growth_pct": 5.7,
+      "forward_eps": 1.84,
+      "note": "manual_override"
+    },
+    "6122": {
+      "name": "擎邦",
+      "eps_ttm": 4.67,
+      "bps": 21.93,
+      "eps_growth_pct": 8.4,
+      "forward_eps": 4.67,
+      "note": "TTM=26Q1(1.03)+25Q4(1.33)+Q3(1.23)+Q2(1.08) | BPS=21.93 | YoY=8.4%"
+    },
+    "6123": {
+      "name": "上奇",
+      "eps_ttm": 2.82,
+      "bps": 24.98,
+      "eps_growth_pct": -25.2,
+      "forward_eps": 2.82,
+      "note": "TTM=26Q1(0.7)+25Q4(0.74)+Q3(0.68)+Q2(0.7) | 25EPS=2.73 YoY=-25.2%"
+    },
+    "6412": {
+      "name": "群電",
+      "eps_ttm": 20.0,
+      "bps": 36.14,
+      "eps_growth_pct": 6.2,
+      "forward_eps": 20.0,
+      "note": "trailing_4q_fallback"
+    },
+    "8936": {
+      "name": "國統",
+      "eps_ttm": 4.33,
+      "bps": 28.07,
+      "eps_growth_pct": 21.1,
+      "forward_eps": 4.33,
+      "note": "TTM=26Q1(0.99)+25Q4(1.13)+Q3(1.34)+Q2(0.87) | BPS=28.07 | YoY=+21.1%"
+    },
+    "9907": {
+      "name": "統一實",
+      "eps_ttm": 1.11,
+      "bps": 14.09,
+      "eps_growth_pct": 40.2,
+      "forward_eps": 1.11,
+      "note": "TTM=26Q1(0.17)+25Q4(0.24)+Q3(0.36)+Q2(0.34) | BPS=14.09 | 25EPS=1.36 YoY=+40.2%"
+    }
+  }
+}

@@ -157,7 +157,7 @@ function tag(label){
 }
 const cards={};
 function cardHTML(s){
-  if(s.close_price==null) return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span></h2><div class="row muted">等待資料...</div>`;
+  if(s.close_price==null) return `<h2>${s.stock_name||s.stock_id} <span>${s.stock_id}</span><button onclick="removeStock('${s.stock_id}')" title="移除" style="float:right;background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:0 4px">×</button></h2><div class="row muted">等待資料...</div>`;
   const ref = s.ref_price != null ? s.ref_price : (s.open_price != null ? s.open_price : null);
   const cls = (ref !== null && s.close_price !== null)
     ? (s.close_price > ref ? 'up' : s.close_price < ref ? 'down' : '')
@@ -343,14 +343,6 @@ def read_snapshot(stock_id: str) -> dict | None:
             "limit_state": _calc_limit_state(snap.get("close_price"), stock_id),
             "_records": snap.get("records", []),
         }
-        # 載入財務數據
-        fin = _load_financials()
-        if fin and stock_id in fin:
-            fs = fin[stock_id]
-            d["pe"] = fs.get("pe")
-            d["pb"] = fs.get("pb")
-            d["peg"] = fs.get("peg")
-            d["peg_note"] = fs.get("peg_note", "")
         # 盤後若 snapshot records 為空，從 CSV 讀取完整紀錄
         if not d["_records"]:
             from datetime import datetime as _dt
@@ -373,6 +365,13 @@ def read_snapshot(stock_id: str) -> dict | None:
             if d["close_price"] is not None and d["open_price"] is not None:
                 d["price_diff"] = round(d["close_price"] - d["open_price"], 2)
             d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
+        # PE/PB/PEG from live price + static fundamentals（在 close_price 覆蓋後計算）
+        fund = _FUND.get(stock_id)
+        d["pe"], d["pb"], d["peg"], d["peg_note"] = _compute_pe_pb_peg(d.get("close_price"), fund)
+        # 盤後用 actual_vol 覆蓋 deal_volume/deal_amount
+        if actual_vol and actual_vol > (d.get("deal_volume") or 0):
+            d["deal_volume"] = actual_vol
+            d["deal_amount"] = int(actual_vol * d["close_price"]) if d.get("close_price") else None
         # 補救 stock_type
         if not d["stock_type"] or d["stock_type"] == "unknown":
             d["stock_type"] = _detect_stock_type(stock_id, d["close_price"])
@@ -505,6 +504,17 @@ def read_latest_csv(stock_id: str) -> dict | None:
             if d["close_price"] is not None and d["open_price"] is not None:
                 d["price_diff"] = round(d["close_price"] - d["open_price"], 2)
             d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
+        # PE/PB/PEG from live price + static fundamentals（在 close_price 覆蓋後計算）
+        fund = _FUND.get(stock_id)
+        d["pe"], d["pb"], d["peg"], d["peg_note"] = _compute_pe_pb_peg(d.get("close_price"), fund)
+        # 盤後用 actual_vol 覆蓋 deal_volume/deal_amount
+        if actual_vol and actual_vol > (d.get("deal_volume") or 0):
+            d["deal_volume"] = actual_vol
+            d["deal_amount"] = int(actual_vol * d["close_price"]) if d.get("close_price") else None
+        # MA backup: keep last known good value
+        for key in ("ma5", "ma10"):
+            if d[key] is None:
+                d[key] = _LAST_KNOWN.get(stock_id, {}).get(key)
         return d
     except Exception:
         return None
@@ -677,6 +687,49 @@ def _load_financials():
     _fin_cache = result
     _fin_cache_time = now
     return result
+
+def _load_fundamentals():
+    """Load fundamentals.json once; PE/PB/PEG computed from live price.
+    PE = close / eps_ttm ; PB = close / bps ; PEG = (close/forward_eps) / |growth|
+    """
+    path = "fundamentals.json"
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f).get("stocks", {})
+        except Exception:
+            pass
+    return {}
+
+def _compute_pe_pb_peg(close_price, fund):
+    """Compute PE/PB/PEG from live close_price + static fundamentals."""
+    if not fund or close_price is None:
+        return None, None, None, ""
+    eps = fund.get("eps_ttm")
+    bps = fund.get("bps")
+    growth = fund.get("eps_growth_pct")
+    fwd_eps = fund.get("forward_eps")
+
+    pe = round(close_price / eps, 2) if eps and eps > 0 else None
+    pb = round(close_price / bps, 2) if bps and bps > 0 else None
+
+    peg = None
+    note = fund.get("note", "")
+    use_eps = fwd_eps if fwd_eps else eps
+
+    if pe and growth and abs(growth) > 0.1 and use_eps:
+        peg = round(pe / abs(growth), 2)
+        src = 'forward' if fwd_eps else 'ttm'
+        note = f'{src}EPS={use_eps} | {note}'
+    elif use_eps and use_eps > 0:
+        src = 'forward' if fwd_eps else 'ttm'
+        note = f'{src}EPS={use_eps} | no PEG'
+
+    return pe, pb, peg, note
+
+_LAST_KNOWN = {}
+_FUND = _load_fundamentals()
+
 def _detect_stock_type(stock_id: str, price=None) -> str:
     """依市值排名分類：大型/中型/小型。
     優先使用 market_cap.json（每月更新），降級使用內建 0050 清單。"""
@@ -929,8 +982,8 @@ def api_watchlist_add():
     """新增股票到目前自選股，同步寫入 watchlist.json。"""
     data = request.get_json(silent=True) or {}
     stock_id = str(data.get("stock_id", "")).strip()
-    if not stock_id or not stock_id.isdigit() or len(stock_id) != 4:
-        return jsonify({"ok": False, "error": "請提供有效的 4 碼股票代號"}), 400
+    if not stock_id or not stock_id.isdigit() or not (4 <= len(stock_id) <= 6):
+        return jsonify({"ok": False, "error": "請提供有效的 4-6 碼股票代號"}), 400
 
     wl = load_watchlists()
     entry = wl.get(_active_watchlist, wl.get("自選股1", {"stocks": [], "futures": []}))

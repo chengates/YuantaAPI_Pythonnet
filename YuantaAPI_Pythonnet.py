@@ -3575,36 +3575,38 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
             subscribe_triggered = False
             if current_time - last_subscribe_time >= subscribe_interval and phase in ('trading', 'matching'):
                 if 'objYuantaOneAPI' in globals():
-                    SubscribeFiveTick_api(objYuantaOneAPI)
-                    last_subscribe_time = current_time
-                    subscribe_triggered = True
-                    print(f"[{dt.datetime.now()}] 週期性重新呼叫 SubscribeFiveTick_api()")
+                    try:
+                        SubscribeFiveTick_api(objYuantaOneAPI)
+                        last_subscribe_time = current_time
+                        subscribe_triggered = True
+                        print(f"[{dt.datetime.now()}] 週期性重新呼叫 SubscribeFiveTick_api()")
+                    except Exception as sub_err:
+                        print(f"[{dt.datetime.now()}] SubscribeFiveTick 失敗: {sub_err}")
                 else:
                     print(f"[{dt.datetime.now()}] 無法重新訂閱，objYuantaOneAPI 未初始化")
 
             # 每 60 秒重新訂閱全部四種訂閱，防止個股（尤其 OTC）訂閱過期掉線
-            # 同時定期重新讀取參考價，處理盤中新增股票
             if current_time - last_watchlist_subscribe_time >= 60 and phase in ('trading', 'matching'):
                 if 'objYuantaOneAPI' in globals():
-                    # 記錄重訂前的 watchlist.json 修改時間，用於偵測新增
-                    old_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
-                    SubscribeWatchlistAll_api(objYuantaOneAPI)
-                    SubscribeWatchlist_api(objYuantaOneAPI)
-                    SubscribeFiveTick_api(objYuantaOneAPI)
-                    SubscribeStocktick_api(objYuantaOneAPI)
-                    new_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
-                    # 情況 1: watchlist.json 變更 → 立即重讀參考價（供新股用）
-                    # 情況 2: 每 300 秒定期重讀參考價（確保 API 值更新，補漏網之魚）
-                    need_ref = (new_mtime > old_mtime) or (current_time - last_ref_price_time >= 300)
-                    if need_ref:
-                        if new_mtime > old_mtime:
-                            print(f"[{dt.datetime.now()}] watchlist.json 有變更，重新讀取參考價")
-                        else:
-                            print(f"[{dt.datetime.now()}] 定期重新讀取參考價 (300s)")
-                        ReadWatchListAll_api(objYuantaOneAPI)
-                        last_ref_price_time = current_time
-                    last_watchlist_subscribe_time = current_time
-                    print(f"[{dt.datetime.now()}] 週期性重新訂閱全部 (WatchlistAll+Watchlist+FiveTick+Stocktick)")
+                    try:
+                        old_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
+                        SubscribeWatchlistAll_api(objYuantaOneAPI)
+                        SubscribeWatchlist_api(objYuantaOneAPI)
+                        SubscribeFiveTick_api(objYuantaOneAPI)
+                        SubscribeStocktick_api(objYuantaOneAPI)
+                        new_mtime = os.path.getmtime("watchlist.json") if os.path.exists("watchlist.json") else 0
+                        need_ref = (new_mtime > old_mtime) or (current_time - last_ref_price_time >= 300)
+                        if need_ref:
+                            if new_mtime > old_mtime:
+                                print(f"[{dt.datetime.now()}] watchlist.json 有變更，重新讀取參考價")
+                            else:
+                                print(f"[{dt.datetime.now()}] 定期重新讀取參考價 (300s)")
+                            ReadWatchListAll_api(objYuantaOneAPI)
+                            last_ref_price_time = current_time
+                        last_watchlist_subscribe_time = current_time
+                        print(f"[{dt.datetime.now()}] 週期性重新訂閱全部")
+                    except Exception as sub_err:
+                        print(f"[{dt.datetime.now()}] 60s 重新訂閱失敗: {sub_err}")
 
             # ---- 交易時段正常保存; matching 期間暫停 CSV 保存 ----
             csv_phase_ok = phase == 'trading'
@@ -3639,8 +3641,11 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
 
             # Dashboard 快照：每 0.5 秒寫入 snapshot/*.json（高速讀取用）
             if current_time - last_snapshot_time >= 0.5:
-                _write_snapshots()
-                last_snapshot_time = current_time
+                try:
+                    _write_snapshots()
+                    last_snapshot_time = current_time
+                except Exception as snap_err:
+                    print(f"[{dt.datetime.now()}] snapshot 寫入失敗: {snap_err}")
 
             await asyncio.sleep(update_interval)
             prev_phase = phase
@@ -3648,7 +3653,15 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
     except KeyboardInterrupt:
         print("\n訂閱監控已停止")
     except Exception as e:
-        print(f"show 方法出現錯誤: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[{dt.datetime.now()}] show() crash: {e}")
+        print(tb)
+        try:
+            with open("error/error.log", "a", encoding="utf-8") as log:
+                log.write(f"\n[{dt.datetime.now()}] show() crash:\n{tb}\n")
+        except Exception:
+            pass
     finally:
         # 清理 API active 標記
         try:

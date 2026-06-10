@@ -1,5 +1,29 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
 
+## [2026-06-10] — PE/PB/PEG 自算系統 + fundamentals.json + API 穩定度
+
+### Fixed
+- **PE/PB/PEG 全數自算**：新增 `fundamentals.json` 為基本面唯一來源（eps_ttm/bps/eps_growth_pct/forward_eps），Dashboard 啟動時載入一次存入 `_FUND`，盤中以即時價自算 PE=close/eps, PB=close/bps, PEG=PE/|growth|。不再需要每日跑 `update_financials.py`/`update_market_cap.py`/`fetch_analyst_eps.py` 來更新 PE/PB/PEG
+- **盤後 PE/PB/PEG 全滅**：`_compute_pe_pb_peg()` 移到 `@stockID.csv` 覆蓋 close_price **之後**才執行，確保盤後使用正確收盤價計算
+- **盤後成交總額/總量變極小值**：`read_snapshot()` 盤後新增 actual_vol 覆蓋 deal_volume/deal_amount，不再顯示 5 秒 interval delta (e.g. 2330 從 88 股 → 38,847 張)
+- **PE/PB/PEG 盤中閃爍**：`_FUND` 模組級常數，每 0.5s poll 不再重複讀取三個 JSON 檔，永不閃爍
+- **MA5/MA10 閃爍為 "--"**：新增 `_LAST_KNOWN` dict 保留上次有效值，API 暫時掉失時沿用上一筆
+- **0062 無法刪除**：cardHTML early return 路徑（無成交價時）補上移除按鈕
+- **4碼限制無法加入ETF/權證**：自選股新增驗證從 `len==4` 改為 `4 <= len <= 6`
+- **API show() 崩潰無 traceback**：except block 加入 `traceback.format_exc()` 並寫入 `error/error.log`
+- **5秒/60秒重訂閱崩潰**：SubscribeFiveTick 和四種全重訂外包 try/except
+- **snapshot 寫入崩潰**：`_write_snapshots()` 外包 try/except
+- **fundamentals.json**：補齊 6122/6123/8936/9907/2354 真實財務數據（TTM EPS/BPS/YoY growth）
+
+### Changed
+- `web_dashboard.py`: `_load_financials()` → `_load_fundamentals()` + `_compute_pe_pb_peg()`; 新增 `_FUND`/`_LAST_KNOWN` 模組常數; PE/PB/PEG 移至 close_price 覆蓋後計算; 盤後 deal_volume/deal_amount 以 actual_vol 覆蓋; 4-6碼驗證; MA persistence
+- `YuantaAPI_Pythonnet.py`: show() crash traceback→error.log; 訂閱/snapshot 外包 try/except
+- `run.py`: API subprocess 固定加 `-B` 旗標
+- `fundamentals.json`: 新建，13 檔自選股基本面
+
+### Removed
+- 不再依賴 `stock_financials.json` / `analyst_eps.json` / `market_cap.json` 來計算 PE/PB/PEG（僅 fundamentals.json 為來源）
+
 ## [2026-06-09] — 價格精度 + 累積量單位 + PE/PB/PEG 修復
 
 ### Fixed
