@@ -83,11 +83,11 @@
     },
     "6412": {
       "name": "群電",
-      "eps_ttm": 20.0,
+      "eps_ttm": 5.21,
       "bps": 36.13,
       "eps_growth_pct": 6.2,
-      "forward_eps": 20.0,
-      "note": "BPS=36.13(26Q1)|trailing_4q_fallback"
+      "forward_eps": 5.21,
+      "note": "TTM=5.21(26Q1+25Q4+Q3+Q2)|BPS=36.13|待年度EPS算growth|no forward_eps"
     },
     "8936": {
       "name": "國統",
