@@ -3170,6 +3170,18 @@ def _save_stock_ref_json():
     ref = SUBSCRIPTION_STATE.get('stock_ref', {})
     if not ref:
         return
+    # 清理 pythonnet 編碼損壞的股名（用 stock_names.json 取代）
+    try:
+        with open("stock_names.json", "r", encoding="utf-8") as nf:
+            names_dict = json.load(nf)
+        for sid, info in ref.items():
+            sn = info.get("stock_name", "")
+            if sn and len([c for c in sn if ord(c) == 0xFFFD]) > 0:
+                correct = names_dict.get(sid, "")
+                if correct:
+                    info["stock_name"] = correct
+    except Exception:
+        pass
     try:
         with open("stock_ref.json", "w", encoding="utf-8") as f:
             json.dump(ref, f, ensure_ascii=False, indent=2)

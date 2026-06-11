@@ -1,77 +1,89 @@
 {
   "2344": {
-    "yst_price": 1540000,
-    "up_price": 1694000,
-    "down_price": 1386000,
-    "yst_vol": 179964848,
+    "yst_price": 1490000,
+    "up_price": 1639000,
+    "down_price": 1341000,
+    "yst_vol": 185310442,
     "stock_name": "華邦電"
   },
   "2330": {
-    "yst_price": 22950000,
-    "up_price": 25245000,
-    "down_price": 20655000,
-    "yst_vol": 52273858,
+    "yst_price": 22550000,
+    "up_price": 24805000,
+    "down_price": 20295000,
+    "yst_vol": 54194021,
     "stock_name": "台積電"
   },
   "2317": {
-    "yst_price": 2695000,
-    "up_price": 2964500,
-    "down_price": 2425500,
-    "yst_vol": 117863651,
+    "yst_price": 2630000,
+    "up_price": 2893000,
+    "down_price": 2367000,
+    "yst_vol": 93369272,
     "stock_name": "鴻海"
   },
   "2356": {
-    "yst_price": 692000,
-    "yst_vol": 17530602,
-    "up_price": 761200,
-    "down_price": 622800
+    "yst_price": 662000,
+    "yst_vol": 66829504,
+    "up_price": 728199,
+    "down_price": 595800
   },
   "2609": {
-    "yst_price": 517000,
-    "yst_vol": 66798155,
-    "up_price": 568700,
-    "down_price": 465300
+    "yst_price": 506000,
+    "yst_vol": 56863530,
+    "up_price": 556600,
+    "down_price": 455400
   },
   "2610": {
-    "yst_price": 190500,
-    "yst_vol": 59519767,
-    "up_price": 209600,
-    "down_price": 171400
+    "yst_price": 195500,
+    "yst_vol": 40631382,
+    "up_price": 215100,
+    "down_price": 176000
   },
   "6412": {
-    "yst_price": 940000,
-    "yst_vol": 5414590,
-    "up_price": 1034000,
-    "down_price": 846000
+    "yst_price": 870000,
+    "yst_vol": 4133477,
+    "up_price": 957000,
+    "down_price": 783000
   },
   "6122": {
-    "yst_price": 477000,
-    "yst_vol": 335430,
-    "up_price": 524700,
-    "down_price": 429300
+    "yst_price": 478000,
+    "yst_vol": 171606,
+    "up_price": 525800,
+    "down_price": 430200
   },
   "6123": {
-    "yst_price": 456000,
-    "yst_vol": 121685,
-    "up_price": 501599,
-    "down_price": 410400
+    "yst_price": 462500,
+    "yst_vol": 162353,
+    "up_price": 508800,
+    "down_price": 416200
   },
   "8936": {
-    "yst_price": 577000,
-    "yst_vol": 12328102,
-    "up_price": 634700,
-    "down_price": 519300
+    "yst_price": 549000,
+    "yst_vol": 11998817,
+    "up_price": 603900,
+    "down_price": 494099
   },
   "2354": {
-    "yst_price": 564000,
-    "yst_vol": 13376502,
-    "up_price": 620400,
-    "down_price": 507600
+    "yst_price": 563000,
+    "yst_vol": 9575280,
+    "up_price": 619300,
+    "down_price": 506700
   },
   "9907": {
-    "yst_price": 164500,
-    "yst_vol": 4160019,
-    "up_price": 181000,
-    "down_price": 148000
+    "yst_price": 167000,
+    "yst_vol": 3527906,
+    "up_price": 183700,
+    "down_price": 150300
+  },
+  "2327": {
+    "yst_price": 8260000,
+    "yst_vol": 52270522,
+    "up_price": 9086000,
+    "down_price": 7434000
+  },
+  "6174": {
+    "yst_price": 470000,
+    "yst_vol": 12500788,
+    "up_price": 517000,
+    "down_price": 423000
   }
 }

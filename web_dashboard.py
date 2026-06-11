@@ -982,8 +982,11 @@ def api_watchlist_add():
     """新增股票到目前自選股，同步寫入 watchlist.json。"""
     data = request.get_json(silent=True) or {}
     stock_id = str(data.get("stock_id", "")).strip()
-    if not stock_id or not stock_id.isdigit() or not (4 <= len(stock_id) <= 6):
+    if not stock_id or len(stock_id) < 4 or len(stock_id) > 6:
         return jsonify({"ok": False, "error": "請提供有效的 4-6 碼股票代號"}), 400
+    # alphanumeric allowed (warrants/ETFs may contain letters e.g. 00980A)
+    if not all(c.isdigit() or c.isalpha() for c in stock_id):
+        return jsonify({"ok": False, "error": "股票代號僅接受英數字"}), 400
 
     wl = load_watchlists()
     entry = wl.get(_active_watchlist, wl.get("自選股1", {"stocks": [], "futures": []}))
@@ -1048,15 +1051,16 @@ def api_stock_search():
 
 
 def _fetch_new_stock_data(stock_id: str):
-    """為新加入的自選股取得昨日收盤資料與參考價。"""
+    """為新加入的自選股取得昨日收盤資料、參考價，並在 fundamentals.json 建立佔位。"""
     import subprocess, sys
+    # 1. fundamentals.json 補佔位（避免 PE/PB/PEG 永遠 --）
+    _ensure_fund_placeholder(stock_id)
     try:
         result = subprocess.run(
             [sys.executable, "fetch_daily_close.py", "--stocks", stock_id, "--compare-only"],
             capture_output=True, text=True, timeout=60,
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
-        # 先嘗試比對，若有資料缺漏則實際寫入
         if "無異常" not in result.stdout:
             subprocess.run(
                 [sys.executable, "fetch_daily_close.py", "--stocks", stock_id],
@@ -1064,7 +1068,32 @@ def _fetch_new_stock_data(stock_id: str):
                 cwd=os.path.dirname(os.path.abspath(__file__))
             )
     except Exception:
-        pass  # 背景執行，失敗不影響 UI
+        pass
+
+
+def _ensure_fund_placeholder(stock_id: str):
+    """在 fundamentals.json 中加入新股票的佔位條目（若不存在），並重載 _FUND。"""
+    global _FUND
+    fund_path = "fundamentals.json"
+    try:
+        import json as _json
+        if os.path.exists(fund_path):
+            with open(fund_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+        else:
+            data = {"updated": "", "stocks": {}}
+        if stock_id not in data.get("stocks", {}):
+            data.setdefault("stocks", {})[stock_id] = {
+                "name": get_stock_name(stock_id),
+                "eps_ttm": None, "bps": None, "eps_growth_pct": None,
+                "forward_eps": None, "note": "new_stock_placeholder"
+            }
+            with open(fund_path, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False, indent=2)
+            # 重載 _FUND 讓立即生效
+            _FUND = data.get("stocks", {})
+    except Exception:
+        pass
 
 
 @app.route("/api/lookup")

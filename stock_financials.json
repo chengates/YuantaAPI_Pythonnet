@@ -1,106 +1,6 @@
 {
-  "updated": "2026-06-09T12:39:20.588379",
+  "updated": "2026-06-10T12:46:21.549700",
   "stocks": {
-    "2354": {
-      "name": "鴻準",
-      "pe": 29.53,
-      "pb": 0.82,
-      "eps_ttm": null,
-      "eps_growth_pct": null,
-      "peg": null,
-      "eps_quarters": null,
-      "peg_note": "無EPS資料，需手動填入analyst_eps.json"
-    },
-    "2610": {
-      "name": "華航",
-      "pe": 7.77,
-      "pb": 1.18,
-      "eps_ttm": 1.09,
-      "eps_growth_pct": 5.7,
-      "peg": 1.37,
-      "eps_quarters": [
-        0.25,
-        0.28,
-        0.26,
-        0.3
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2317": {
-      "name": "鴻海",
-      "pe": 20.81,
-      "pb": 2.3,
-      "eps_ttm": 12.38,
-      "eps_growth_pct": 7.0,
-      "peg": 2.96,
-      "eps_quarters": [
-        2.83,
-        3.15,
-        2.98,
-        3.42
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2356": {
-      "name": "英業達",
-      "pe": 29.58,
-      "pb": 3.8,
-      "eps_ttm": 3.6,
-      "eps_growth_pct": 3.4,
-      "peg": 8.73,
-      "eps_quarters": [
-        0.85,
-        0.92,
-        0.88,
-        0.95
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2881": {
-      "name": "富邦金",
-      "pe": 15.68,
-      "pb": 1.75,
-      "eps_ttm": 3.6,
-      "eps_growth_pct": 3.4,
-      "peg": 4.63,
-      "eps_quarters": [
-        0.85,
-        0.92,
-        0.88,
-        0.95
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2330": {
-      "name": "台積電",
-      "pe": 32.07,
-      "pb": 10.5,
-      "eps_ttm": 59.26,
-      "eps_growth_pct": 14.2,
-      "peg": 2.26,
-      "eps_quarters": [
-        13.62,
-        14.05,
-        15.21,
-        16.38
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2344": {
-      "name": "華邦電",
-      "pe": 53.26,
-      "pb": 6.93,
-      "eps_ttm": 1.6,
-      "eps_growth_pct": 7.8,
-      "peg": 6.84,
-      "eps_quarters": [
-        0.35,
-        0.42,
-        0.38,
-        0.45
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
     "6122": {
       "name": "擎邦",
       "pe": 74.8,
@@ -116,21 +16,6 @@
       ],
       "peg_note": "負成長，PEG無意義"
     },
-    "6123": {
-      "name": "上奇",
-      "pe": 49.2,
-      "pb": null,
-      "eps_ttm": 0.9500000000000001,
-      "eps_growth_pct": null,
-      "peg": null,
-      "eps_quarters": [
-        0.22,
-        0.25,
-        0.2,
-        0.28
-      ],
-      "peg_note": "負成長，PEG無意義"
-    },
     "6412": {
       "name": "群電",
       "pe": 19.81,
@@ -143,36 +28,6 @@
         5.2,
         4.8,
         5.5
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2882": {
-      "name": "國泰金",
-      "pe": 14.32,
-      "pb": 1.89,
-      "eps_ttm": 3.2,
-      "eps_growth_pct": 3.8,
-      "peg": 3.75,
-      "eps_quarters": [
-        0.75,
-        0.82,
-        0.78,
-        0.85
-      ],
-      "peg_note": "近四季EPS (YoY半年成長率)"
-    },
-    "2303": {
-      "name": "聯電",
-      "pe": 31.41,
-      "pb": 3.87,
-      "eps_ttm": 4.68,
-      "eps_growth_pct": 5.3,
-      "peg": 5.97,
-      "eps_quarters": [
-        1.1,
-        1.18,
-        1.15,
-        1.25
       ],
       "peg_note": "近四季EPS (YoY半年成長率)"
     },
@@ -206,18 +61,103 @@
       ],
       "peg_note": "近四季EPS (YoY半年成長率)"
     },
-    "2454": {
-      "name": "聯發科",
-      "pe": 70.6,
-      "pb": 18.12,
-      "eps_ttm": 72.0,
-      "eps_growth_pct": 7.5,
-      "peg": 9.42,
+    "2610": {
+      "name": "華航",
+      "pe": 7.77,
+      "pb": 1.18,
+      "eps_ttm": 1.09,
+      "eps_growth_pct": 5.7,
+      "peg": 1.37,
       "eps_quarters": [
-        16.5,
-        18.2,
-        17.8,
-        19.5
+        0.25,
+        0.28,
+        0.26,
+        0.3
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "2882": {
+      "name": "國泰金",
+      "pe": 14.32,
+      "pb": 1.89,
+      "eps_ttm": 3.2,
+      "eps_growth_pct": 3.8,
+      "peg": 3.75,
+      "eps_quarters": [
+        0.75,
+        0.82,
+        0.78,
+        0.85
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "0062": {
+      "name": "",
+      "pe": null,
+      "pb": null,
+      "eps_ttm": null,
+      "eps_growth_pct": null,
+      "peg": null,
+      "eps_quarters": null,
+      "peg_note": "無EPS資料，需手動填入analyst_eps.json"
+    },
+    "2881": {
+      "name": "富邦金",
+      "pe": 15.68,
+      "pb": 1.75,
+      "eps_ttm": 3.6,
+      "eps_growth_pct": 3.4,
+      "peg": 4.63,
+      "eps_quarters": [
+        0.85,
+        0.92,
+        0.88,
+        0.95
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "2356": {
+      "name": "英業達",
+      "pe": 29.58,
+      "pb": 3.8,
+      "eps_ttm": 3.6,
+      "eps_growth_pct": 3.4,
+      "peg": 8.73,
+      "eps_quarters": [
+        0.85,
+        0.92,
+        0.88,
+        0.95
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "6123": {
+      "name": "上奇",
+      "pe": 49.2,
+      "pb": null,
+      "eps_ttm": 0.9500000000000001,
+      "eps_growth_pct": null,
+      "peg": null,
+      "eps_quarters": [
+        0.22,
+        0.25,
+        0.2,
+        0.28
+      ],
+      "peg_note": "負成長，PEG無意義"
+    },
+    "2317": {
+      "name": "鴻海",
+      "pe": 20.81,
+      "pb": 2.3,
+      "eps_ttm": 12.38,
+      "eps_growth_pct": 7.0,
+      "peg": 2.96,
+      "eps_quarters": [
+        2.83,
+        3.15,
+        2.98,
+        3.42
       ],
       "peg_note": "近四季EPS (YoY半年成長率)"
     },
@@ -236,6 +176,46 @@
       ],
       "peg_note": "近四季EPS (YoY半年成長率)"
     },
+    "2303": {
+      "name": "聯電",
+      "pe": 31.41,
+      "pb": 3.87,
+      "eps_ttm": 4.68,
+      "eps_growth_pct": 5.3,
+      "peg": 5.97,
+      "eps_quarters": [
+        1.1,
+        1.18,
+        1.15,
+        1.25
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "2454": {
+      "name": "聯發科",
+      "pe": 70.6,
+      "pb": 18.12,
+      "eps_ttm": 72.0,
+      "eps_growth_pct": 7.5,
+      "peg": 9.42,
+      "eps_quarters": [
+        16.5,
+        18.2,
+        17.8,
+        19.5
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "2354": {
+      "name": "鴻準",
+      "pe": 29.53,
+      "pb": 0.82,
+      "eps_ttm": null,
+      "eps_growth_pct": null,
+      "peg": null,
+      "eps_quarters": null,
+      "peg_note": "無EPS資料，需手動填入analyst_eps.json"
+    },
     "9907": {
       "name": "統一實",
       "pe": 15.14,
@@ -245,6 +225,36 @@
       "peg": null,
       "eps_quarters": null,
       "peg_note": "無EPS資料，需手動填入analyst_eps.json"
+    },
+    "2344": {
+      "name": "華邦電",
+      "pe": 53.26,
+      "pb": 6.93,
+      "eps_ttm": 1.6,
+      "eps_growth_pct": 7.8,
+      "peg": 6.84,
+      "eps_quarters": [
+        0.35,
+        0.42,
+        0.38,
+        0.45
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
+    },
+    "2330": {
+      "name": "台積電",
+      "pe": 32.07,
+      "pb": 10.5,
+      "eps_ttm": 59.26,
+      "eps_growth_pct": 14.2,
+      "peg": 2.26,
+      "eps_quarters": [
+        13.62,
+        14.05,
+        15.21,
+        16.38
+      ],
+      "peg_note": "近四季EPS (YoY半年成長率)"
     }
   }
 }

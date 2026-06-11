@@ -374,11 +374,16 @@ def main():
     if not args.no_api:
         print("[RUN] 啟動 YuantaAPI_Pythonnet.py ...")
         try:
+            # 強制子程序使用 UTF-8，避免 cp950 亂碼
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             api_proc = subprocess.Popen(
-                [sys.executable, "-B", "YuantaAPI_Pythonnet.py"],
+                [sys.executable, "-B", "-X", "utf8", "YuantaAPI_Pythonnet.py"],
                 cwd=os.path.dirname(os.path.abspath(__file__)),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace"
+                text=True, encoding="utf-8", errors="replace",
+                env=env
             )
             print(f"[RUN] API 子程序已啟動 (PID={api_proc.pid})")
 

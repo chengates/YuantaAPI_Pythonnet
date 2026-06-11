@@ -1,5 +1,5 @@
 {
-  "updated": "2026-06-09T13:52:44.762934",
+  "updated": "2026-06-11T08:57:10.052618",
   "stocks": {
     "2330": {
       "name": "台積電",
@@ -33,48 +33,48 @@
     },
     "2344": {
       "name": "華邦電",
-      "consensus_eps": 1.6,
-      "method": "trailing_4q_fallback",
+      "consensus_eps": 16.96,
+      "method": "manual_override",
       "all_estimates": [],
       "source_count": 0,
       "peg": {
-        "forward_eps": 1.6,
+        "forward_eps": 16.96,
         "trailing_eps": 1.6,
-        "forward_pe": 112.19,
-        "eps_growth_pct": 0.0,
-        "peg": null
+        "forward_pe": 10.58,
+        "eps_growth_pct": 960.0,
+        "peg": 0.01
       },
-      "manual_eps": null
+      "manual_eps": 16.96
     },
     "2610": {
       "name": "華航",
-      "consensus_eps": 1.09,
-      "method": "trailing_4q_fallback",
+      "consensus_eps": 1.84,
+      "method": "manual_override",
       "all_estimates": [],
       "source_count": 0,
       "peg": {
-        "forward_eps": 1.09,
+        "forward_eps": 1.84,
         "trailing_eps": 1.09,
-        "forward_pe": 18.26,
-        "eps_growth_pct": 0.0,
-        "peg": null
+        "forward_pe": 10.82,
+        "eps_growth_pct": 68.8,
+        "peg": 0.16
       },
-      "manual_eps": null
+      "manual_eps": 1.84
     },
     "2609": {
       "name": "陽明",
-      "consensus_eps": 5.25,
-      "method": "trailing_4q_fallback",
+      "consensus_eps": 3.17,
+      "method": "manual_override",
       "all_estimates": [],
       "source_count": 0,
       "peg": {
-        "forward_eps": 5.25,
+        "forward_eps": 3.17,
         "trailing_eps": 5.25,
-        "forward_pe": 10.13,
-        "eps_growth_pct": 0.0,
+        "forward_pe": 16.78,
+        "eps_growth_pct": -39.6,
         "peg": null
       },
-      "manual_eps": null
+      "manual_eps": 3.17
     },
     "6123": {
       "name": "上奇",
