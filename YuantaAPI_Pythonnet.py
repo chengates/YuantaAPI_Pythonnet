@@ -3553,8 +3553,8 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
                     _csv_frozen = True
                 # 繼續循環但不寫 CSV，只更新顯示與快照
                 for state in list(SUBSCRIPTION_STATE['stocks'].values()):
-                    _display_quote_info(state)
-                if current_time - last_snapshot_time >= 0.5:
+                    try: _display_quote_info(state)
+                    except Exception: pass
                     _write_snapshots()
                     last_snapshot_time = current_time
                 await asyncio.sleep(update_interval)
@@ -3649,7 +3649,8 @@ async def show(update_interval: float = 1/60, save_interval: float = 5, subscrib
 
             # 每 1/60 秒顯示所有已訂閱股票的最新信息
             for state in list(SUBSCRIPTION_STATE['stocks'].values()):
-                _display_quote_info(state)
+                try: _display_quote_info(state)
+                except Exception: pass
 
             # Dashboard 快照：每 0.5 秒寫入 snapshot/*.json（高速讀取用）
             if current_time - last_snapshot_time >= 0.5:
@@ -3872,12 +3873,16 @@ def _write_snapshots():
 
 def _display_quote_info(state):
     """
-    顯示訂閱的報價信息
-    
-    Args:
-        state: StockQuoteState 或包含報價信息的字典
+    顯示訂閱的報價信息（安全打印，避免 cp950 編碼崩潰）
     """
     try:
+        # 安全編碼：避免 cp950 console 列印中文崩潰
+        try:
+            import sys as _sys
+            _sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
         if isinstance(state, StockQuoteState):
             record = state.build_save_record()
         else:

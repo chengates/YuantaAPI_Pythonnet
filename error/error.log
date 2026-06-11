@@ -120,3 +120,20 @@ Agent (Claude Opus 4.7 via Claude Code) 無法讀取 PNG 截圖 (error/總量err
 4. DASHBOARD 改進效能,目前是由5秒APPNED的大檔案更新,建議能多一筆個別更新給DASHOARD專用的CSV,資料是用UPDATE的方式,時間0.5秒,或AGENT有更好的方法
 5. 大約9:15 2344進入跌停過程開開關關,但DASHBOARD完全沒亮燈,前幾天我們就有漲停該亮燈,沒亮,不該亮燈卻亮燈,那時就提到跌停可能也會有相同問題,果然這部分要查清楚,預估量也是,不管正或負都有必要加大,例如10:50時我看2609明顯>50%但我們預估僅32%,同一個時間2344量增約20%,但DASHBOARD僅為11%,2330約45%DASHBOARD6%,2317約0%DASHBOARD縮20.6%
 6. 斷線的問題,如果1:30以前server ,不管@股號.csv 或 yerter\的csv都會錯過?,應設法恢復資料,前端5秒csv都有收到1:30的結束csv,localhost<->前端的問題參考,0505 150可見前端1040-1101斷線截圖,建議1可以設計並看到連線數,可以在連線數發生下降時,排除人為因素,有重連復原機制,或有更佳feedback發法,另一個問題點,csv有1:30後的資料,但@csv沒有yesterday也呒,我等2:30後在總結,而dashboard已知斷線,所以ohlc價量,看的到的資料,也沒有參考意義了
+[2026-06-11 13:50:12.071975] show() crash:
+Traceback (most recent call last):
+  File "D:\workCS\TEST\2026\YuantaOneAPI_Python\YuantaOneAPI_Python\YuantaAPI_Pythonnet.py", line 3909, in _display_quote_info
+    trade_count = record.get('trade_count')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'cp950' codec can't encode character '\u989d' in position 0: illegal multibyte sequence
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\workCS\TEST\2026\YuantaOneAPI_Python\YuantaOneAPI_Python\YuantaAPI_Pythonnet.py", line 3640, in show
+    state.commit_save_snapshot()
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\workCS\TEST\2026\YuantaOneAPI_Python\YuantaOneAPI_Python\YuantaAPI_Pythonnet.py", line 3930, in _display_quote_info
+    total_buy = sum(buy_volumes)
+OSError: [Errno 22] Invalid argument
+

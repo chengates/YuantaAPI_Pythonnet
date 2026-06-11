@@ -186,7 +186,7 @@ function cardHTML(s){
 <div class="row"><span>內盤 ${vol(s.total_in_volume)} 張</span><span class="muted">外盤 ${vol(s.total_out_volume)} 張</span></div>
 <div class="row"><span>${s.volume_label||'估日量'} ${vol(s.estimated_day_volume)} 張</span><span class="muted">${s.pct_of_yesterday_avg!=null?(s.pct_of_yesterday_avg>=0?'增':'縮')+Math.abs(s.pct_of_yesterday_avg).toFixed(1)+'%':'--'}</span></div>
 <div class="row"><span>MA5 ${fmt(s.ma5)}</span><span class="muted">MA10 ${fmt(s.ma10)}</span><span>${tag(s.participation_label||'N/A')}</span></div>
-<div class="row" style="font-size:11px"><span class="muted">PE ${fmt(s.pe,1)||"--"}</span><span class="muted">PB ${fmt(s.pb,2)||"--"}</span><span class="muted" title="${s.peg_note||""}">PEG ${fmt(s.peg,2)||"--"}</span></div>
+<div class="row" style="font-size:11px"><span class="${s.pe_source==='forward'?'up':'muted'}" title="${s.pe_source==='forward'?'本益比使用法人預估EPS':(s.pe_source==='trailing'?'本益比使用近四季EPS':'無EPS資料')}">PE ${fmt(s.pe,1)||"--"}</span>${s.pe_revision==='up'?'<span class="up" style="font-size:9px;margin-left:2px">上修</span>':s.pe_revision==='down'?'<span class="down" style="font-size:9px;margin-left:2px">下修</span>':''}<span class="muted"> PB ${fmt(s.pb,2)||"--"} PEG ${fmt(s.peg,2)||"--"}</span></div>
 <div class="bar"><div class="bar-fill" style="width:${Math.min(100,Math.max(0,inRatio))}%;background:${inRatio>55?'#3fb950':inRatio<45?'#f85149':'#6e7681'}"></div></div>
 <div class="row"><span class="muted">買盤佔比 ${inRatio}%</span><span class="muted">Score: ${s.participation_score||'--'}</span></div>
 <div class="stat-row"><span>${(s.timestamp||'').slice(-8)}</span><span>成交總額 ${(dealAmt/1e4).toFixed(2)}萬 / ${vol(dealVol)}張</span></div>
@@ -367,7 +367,7 @@ def read_snapshot(stock_id: str) -> dict | None:
             d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
         # PE/PB/PEG from live price + static fundamentals（在 close_price 覆蓋後計算）
         fund = _FUND.get(stock_id)
-        d["pe"], d["pb"], d["peg"], d["peg_note"] = _compute_pe_pb_peg(d.get("close_price"), fund)
+        d["pe"], d["pb"], d["peg"], d["peg_note"], d["pe_source"], d["pe_revision"] = _compute_pe_pb_peg(d.get("close_price"), fund)
         # 盤後用 actual_vol 覆蓋 deal_volume/deal_amount
         if actual_vol and actual_vol > (d.get("deal_volume") or 0):
             d["deal_volume"] = actual_vol
@@ -506,7 +506,7 @@ def read_latest_csv(stock_id: str) -> dict | None:
             d["limit_state"] = _calc_limit_state(d["close_price"], stock_id)
         # PE/PB/PEG from live price + static fundamentals（在 close_price 覆蓋後計算）
         fund = _FUND.get(stock_id)
-        d["pe"], d["pb"], d["peg"], d["peg_note"] = _compute_pe_pb_peg(d.get("close_price"), fund)
+        d["pe"], d["pb"], d["peg"], d["peg_note"], d["pe_source"], d["pe_revision"] = _compute_pe_pb_peg(d.get("close_price"), fund)
         # 盤後用 actual_vol 覆蓋 deal_volume/deal_amount
         if actual_vol and actual_vol > (d.get("deal_volume") or 0):
             d["deal_volume"] = actual_vol
@@ -702,15 +702,32 @@ def _load_fundamentals():
     return {}
 
 def _compute_pe_pb_peg(close_price, fund):
-    """Compute PE/PB/PEG from live close_price + static fundamentals."""
+    """Compute PE/PB/PEG from live close_price + static fundamentals.
+    Returns (pe, pb, peg, peg_note, pe_source, revision).
+    pe_source: 'forward' | 'trailing' | None
+    revision: 'up' (fwd_eps > ttm_eps) | 'down' (fwd_eps < ttm_eps) | None
+    PE prefers forward_eps if available, falls back to eps_ttm."""
     if not fund or close_price is None:
-        return None, None, None, ""
+        return None, None, None, "", None, None
     eps = fund.get("eps_ttm")
     bps = fund.get("bps")
     growth = fund.get("eps_growth_pct")
     fwd_eps = fund.get("forward_eps")
 
-    pe = round(close_price / eps, 2) if eps and eps > 0 else None
+    # PE: prefer forward_eps (analyst estimate), fallback to trailing eps_ttm
+    forward_pe = round(close_price / fwd_eps, 2) if fwd_eps and fwd_eps > 0 else None
+    trailing_pe = round(close_price / eps, 2) if eps and eps > 0 else None
+    pe = forward_pe if forward_pe is not None else trailing_pe
+    pe_source = 'forward' if forward_pe is not None else ('trailing' if trailing_pe is not None else None)
+
+    # Revision: compare forward_eps vs eps_ttm (proxy for analyst revision direction)
+    revision = None
+    if fwd_eps and eps and eps > 0:
+        if fwd_eps > eps:
+            revision = 'up'
+        elif fwd_eps < eps:
+            revision = 'down'
+
     pb = round(close_price / bps, 2) if bps and bps > 0 else None
 
     peg = None
@@ -725,7 +742,7 @@ def _compute_pe_pb_peg(close_price, fund):
         src = 'forward' if fwd_eps else 'ttm'
         note = f'{src}EPS={use_eps} | no PEG'
 
-    return pe, pb, peg, note
+    return pe, pb, peg, note, pe_source, revision
 
 _LAST_KNOWN = {}
 _FUND = _load_fundamentals()
@@ -900,7 +917,7 @@ def _empty_card(stock_id: str) -> dict:
             "total_in_volume": 0, "total_out_volume": 0, "estimated_day_volume": 0,
             "volume_label": "盤前預估量",
             "pct_of_yesterday_avg": None, "ma5": None, "ma10": None,
-            "stock_type": "unknown", "participation_score": None,
+            "stock_type": "unknown", "participation_score": None, "pe_source": None, "pe_revision": None,
             "participation_label": "等待資料",
             "buy_prices": [], "buy_volumes": [], "sell_prices": [], "sell_volumes": [],
             "buy_total_volume": 0, "sell_total_volume": 0, "buy_sell_imbalance": 0,
