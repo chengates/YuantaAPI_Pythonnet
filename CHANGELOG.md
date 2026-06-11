@@ -1,5 +1,33 @@
 # CHANGELOG - YuantaAPI_Pythonnet.py
 
+## [2026-06-11] — PE forward_eps + 上修下修顏色 + BPS全面更新 + API cp950崩潰修復
+
+### Fixed
+- **PE 改用 forward_eps 優先**: `_compute_pe_pb_peg()` 回傳值擴充（pe_source/pe_revision），PE = forward_pe 優先，無法人預估時降級 eps_ttm。cardHTML 紅色表示使用法人預估，灰色為近四季 EPS
+- **上修/下修顏色標籤**: forward_eps > eps_ttm → 紅色「上修」；forward_eps < eps_ttm → 綠色「下修」。台灣股市慣例（紅漲綠跌）
+- **BPS 全數真實更新**: 12 檔自選股從 26Q1 資產負債表更新（先前 8 檔為 market_cap 推估不準確）
+  - 2330: 227.14→227.2, 2317: 127.39→127.12, 2344: 25.9→25.92, 2354: 75.98→75.6
+  - 2356: 20.47(吻合), 2609: 95.0→94.2, 2610: 16.86→16.84, 6412: 36.14→36.13
+- **6412 eps_ttm 修正**: 舊 demo 假數據 20.0 → 真實 TTM 5.21（26Q1+25Q4+Q3+Q2），PE 從 4.3 恢復為 16.7
+- **API 每天 13:31 崩潰根因**: `_display_quote_info()` print 中文字在 cp950 console 觸發 `UnicodeEncodeError`（字元「額」無法編碼）→ show() 崩潰退出。`error/error.log` 確認 traceback
+- **API 崩潰防護**: `_display_quote_info()` 強制 `sys.stdout.reconfigure(utf-8)`；show() 主循環兩處 `_display_quote_info` + snapshot 寫入 + 訂閱重訂 全部外包 try/except
+- **run.py 編碼**: API subprocess 傳入 `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1` + `-X utf8`
+- **stock_names.json**: 修復 6174 亂碼（安��→安碁科技），清除 12 筆損壞條目，新增 006201/00631L/00632R/006208 等 ETF
+- **股名編碼防護**: `_save_stock_ref_json()` 自動從 stock_names.json 修復 pythonnet 編碼損壞的股名
+- **自選股驗證**: 從 `isdigit()+len==4` 改為 `alphanumeric+4<=len<=6`（支援 00980A 等權證）
+- **新股 fundamentals 佔位**: `_ensure_fund_placeholder()` 加入新股票時自動建立 fundamentals.json 佔位，PE/PB/PEG 顯示 `--` 而非缺失
+- **6123 基本面備註**: 26Q1 EPS +18.6% YoY 未衰退（年度 -25.2% 但單季反轉），Google AI 雲端代理+3D列印無人機+Anthropic AI 代理授權
+
+### Changed
+- `web_dashboard.py`: `_compute_pe_pb_peg()` 回傳 6-tuple；PE/PB/PEG cardHTML 紅色/灰色+上修下修標籤；`_ensure_fund_placeholder()` 補 _FUND 佔位；`_empty_card` 補 pe_source/pe_revision
+- `YuantaAPI_Pythonnet.py`: `_display_quote_info()` utf-8 強制；show() 主循環 3 處 try/except；`_save_stock_ref_json()` 股名修復；例外寫入 error.log
+- `run.py`: API subprocess 加入 utf-8 環境變數 + `-X utf8` 旗標
+- `stock_names.json`: 修復 6174 + 清除 12 筆亂碼 + 新增 ETF 代碼
+- `fundamentals.json`: BPS 全數真實更新；6122 growth 確認；6412 eps_ttm/forward_eps 修正；6123 備註擴充
+
+### Removed
+- 舊 `stock_financials.json` / `analyst_eps.json` / `market_cap.json` 不再作為 PE/PB/PEG 來源（僅 fundamentals.json）
+
 ## [2026-06-10] — PE/PB/PEG 自算系統 + fundamentals.json + API 穩定度
 
 ### Fixed
